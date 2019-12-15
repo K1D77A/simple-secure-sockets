@@ -7,8 +7,12 @@
   :license      "MIT"
   :pathname "src"
   :components   ((:file "package")
-                 (:file "client/client")
-                 (:file "server/server"))
+                 (:file "helpers")
+                 (:file "classes")
+                 (:file "generics")
+                 (:file "packets")
+                 (:file "client")
+                 (:file "server"))
   :depends-on   (#:usocket
                  #:bordeaux-threads
                  #:ironclad))

@@ -6,22 +6,12 @@
 ;;;need to store the people who be connected n shiz although there will only be one
 ;;;for now will just use a single connection
 
-(defvar %start-header "start")
-(defvar %op-data "d")
-(defvar %op-kill "k")
-(defvar %stop-footer "stop")
 
-(defparameter *DEBUG-OUTPUT* t)
 
 (defparameter *ip* "127.0.0.1")
 (defparameter *port* 12345)
 (defparameter *current-servers* (make-hash-table))
 
-(defclass server ()
-  ((ip :type string :accessor ip :initarg :ip)
-   (port :type integer :accessor port :initarg :port)
-   (socket :accessor s-socket :initform :server-socket-not-set)
-   (stream :accessor s-stream :initform :server-stream-not-set)))
 ;;we will associate an instance of the bot with our server
 ;;however the bots from discord can support thousands, this just makes it easy to shut it down
 ;;when the server shuts down
@@ -48,26 +38,13 @@
   "stops a server based on its name"
   (let ((server (gethash name *current-servers*)))
     (shutdown-server server)))
-(defun f-format (destination control-string &rest format-arguments)
-  "just a normal format function that forces output"
-  (when *DEBUG-OUTPUT*
-    (format destination control-string format-arguments)
-    (force-output destination)))
 
-(defmethod print-object ((object server) stream)
-  (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~%Address: ~A:~ABot: ~A~%Socket: ~A~%Stream: ~A~%"
-            (ip object)
-            (port object)
-            (bot object)
-            (s-socket object)
-            (s-stream object))))
 
-(defmethod shutdown-server :before ((obj server))
+(defmethod shutdown :before ((obj server))
   (f-format t "Attempting to shutdown server and Klambda bot~%"))
-(defmethod shutdown-server :after ((obj server))
+(defmethod shutdown :after ((obj server))
   (f-format t "Shutdown complete~%"))
-(defmethod shutdown-server ((obj server))
+(defmethod shutdown ((obj server))
   "shuts down the connection on server"
   (send-kill obj)
   (sleep 1)
@@ -115,36 +92,6 @@
 
 
 
-(defmethod build-data-packets ((data string))
-  (let* ((start (vectorize-data (concatenate 'string %start-header %op-data)))
-         (len (make-array 1 :element-type '(unsigned-byte 8) :initial-element (length data)))
-         (end  (vectorize-data (concatenate 'string data %stop-footer)))         
-         (arr (concatenate '(vector (unsigned-byte 8)) start len end)))
-    (f-format t "data: ~s~%" arr)
-    (if (validate-length arr)
-        arr
-        (error "Packet is too large so dropping. Length: ~A~%" (length arr)))))
-(defmethod build-data-packets ((data list))
-  (build-data-packets (list-to-string data)))
-(defmethod build-data-packets (data)
-  (error "No generic method exists for the type of data supplied: ~A~%" (type-of data)))
-
-(defmethod vectorize-data ((data string))
-  "takes in a string and converts it to an array of type '(unsigned-byte 8)"
-  (let ((arr (make-array (length data) :element-type '(unsigned-byte 8))))
-    (map-into arr #'char-code data)))
-
-(defun validate-length (data)
-  "max length is 255 plus the length of the headers and op code. 255 is because only one byte is used to tell the client the length of the data coming.";;if I wanted to have more than 255 I could
-  (<= (length data)
-      (+ 255
-         (length %start-header)
-         (length %op-kill)
-         (length %stop-footer))))
-
-(defun build-kill-packets ()
-  (vectorize-data (concatenate 'string %start-header %op-kill  %stop-footer)))
-
 (defmethod send-data (data (obj server))
   "sends the data in the form of a byte array over the network to the client"
   (with-accessors ((connection s-stream))
@@ -157,7 +104,3 @@
       obj
     (write-sequence (build-kill-packets) connection)
     (force-output connection)))
-
-(defun list-to-string (lst)
-  "converts a list to a string"
-  (format nil "~s" lst))
