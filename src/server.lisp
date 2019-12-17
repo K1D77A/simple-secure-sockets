@@ -1,10 +1,5 @@
-;;;;this file contains the server for the bot
+
 (in-package :simple-secure-sockets)
-;;(defparameter *chat-handler* (clack:clackup #'bot-server
-;;:address "172.31.87.246";aws local ip
-;;:port 12345))
-;;;need to store the people who be connected n shiz although there will only be one
-;;;for now will just use a single connection
 
 
 
@@ -12,9 +7,7 @@
 (defparameter *port* 12345)
 (defparameter *current-servers* (make-hash-table))
 
-;;we will associate an instance of the bot with our server
-;;however the bots from discord can support thousands, this just makes it easy to shut it down
-;;when the server shuts down
+
 (defun make-server (name ip port)
   (unless (keywordp name)
     (error "Name should be a keyword: ~s" name))
@@ -23,12 +16,10 @@
                          (wait-for-client server))
       (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c)
                                     (unless
-                                        (equal (s-socket server)
+                                        (equal (c-socket server)
                                                :server-socket-not-set)
-                                      (usocket:socket-close (s-socket server)))
+                                      (usocket:socket-close (c-socket server)))
                                     server)))
-    (start-klambda-bot server)
-    (add-bot-in-hook server)
     (print-object server t)
     (setf (gethash name *current-servers*) server)
     server))
@@ -37,25 +28,25 @@
 (defun stop (name)
   "stops a server based on its name"
   (let ((server (gethash name *current-servers*)))
-    (shutdown-server server)))
+    (shutdown server)))
 
 
 (defmethod shutdown :before ((obj server))
-  (f-format t "Attempting to shutdown server and Klambda bot~%"))
+  (f-format t "Attempting to shutdown server~%"))
 (defmethod shutdown :after ((obj server))
   (f-format t "Shutdown complete~%"))
 (defmethod shutdown ((obj server))
   "shuts down the connection on server"
   (send-kill obj)
   (sleep 1)
-  (usocket:socket-close (s-socket obj)))
+  (usocket:socket-close (c-socket obj)))
 
 (defmethod set-server-socket :before ((obj server))
   (f-format t "Creating socket~%"))
 (defmethod set-server-socket :after ((obj server))
-  (f-format t "Socket created: ~A~%" (s-socket obj)))
+  (f-format t "Socket created: ~A~%" (c-socket obj)))
 (defmethod set-server-socket ((obj server))
-  (setf (s-socket obj)
+  (setf (c-socket obj)
         (usocket:socket-listen  (ip obj)
                                 (port obj)
                                 :element-type '(unsigned-byte 8)
@@ -63,15 +54,15 @@
                                 :reuseaddress t)))
 
 (defmethod wait-for-client :before ((obj server))
-  (f-format t "Waiting on socket: ~A for a connection from the client~%" (s-socket obj)))
+  (f-format t "Waiting on socket: ~A for a connection from the client~%" (c-socket obj)))
 (defmethod wait-for-client :after ((obj server))
   (f-format t "Completed the connection with: ~A on port: ~A" 
-            (usocket:get-peer-address (s-socket obj))
-            (usocket:get-peer-port (s-socket obj))))
+            (usocket:get-peer-address (c-socket obj))
+            (usocket:get-peer-port (c-socket obj))))
 (defmethod wait-for-client ((obj server))
   "takes the obj and waits until it has a connection and then sets the stream"
-  (let ((wait (usocket:socket-accept (s-socket obj))))
-    (setf (s-stream obj) (usocket:socket-stream wait))))
+  (let ((wait (usocket:socket-accept (c-socket obj))))
+    (setf (c-stream obj) (usocket:socket-stream wait))))
 
 
 ;;;very simple protocol to send data across the network
@@ -92,15 +83,3 @@
 
 
 
-(defmethod send-data (data (obj server))
-  "sends the data in the form of a byte array over the network to the client"
-  (with-accessors ((connection s-stream))
-      obj
-    (let ((seq (build-data-packets data)));;build data handles converting between data types
-      (write-sequence seq connection)
-      (force-output connection))))
-(defmethod send-kill ((obj server))
-  (with-accessors ((connection s-stream))
-      obj
-    (write-sequence (build-kill-packets) connection)
-    (force-output connection)))

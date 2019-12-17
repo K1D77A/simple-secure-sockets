@@ -41,7 +41,7 @@
 ;;entered into the function 
 
 (defmethod process-packet ((obj client)(packet kill-packet))
-  (shutdown-client obj))
+  (shutdown obj))
 
 (defmethod dispatch-on-op ((obj client) op function)
   (if (and (keywordp op) (functionp function) (find op *op-keywords*))
@@ -53,11 +53,12 @@
 
 
 (defun make-client (name ip port)
-  (unless (keywordp name)
+  (unless (stringp name)
     (error "Name should be a keyword: ~s" name))
   (let ((client (make-instance 'client :ip ip :port port)))
     (handler-case (connect client)
       (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c )
+                                    (print (c-socket client))
                                     (unless (equal (c-socket client) :socket-not-set)
                                       (usocket:socket-close (c-socket client)))
                                     client)))
@@ -66,8 +67,7 @@
     (let ((bt:*default-special-bindings*(acons '*standard-output* *standard-output*
                                                bt:*default-special-bindings*)))
       (bt:make-thread (lambda () (packet-download-function client))
-                      :name (processor-name client)))
-    (packet-download-function client)
+                      :name  (processor-name client)))   
     client))
 (defun set-threads-to-std-out ()
   (setf bt:*default-special-bindings*;;this sets the var of standard out for the threads
@@ -84,6 +84,7 @@
                    (socket c-socket)
                    (stream c-stream))
       obj
+    (print-object obj t)
     (let ((connect (usocket:socket-connect ip port
                                            :protocol :stream
                                            :element-type '(unsigned-byte 8))))
@@ -99,15 +100,14 @@
                 (bt:destroy-thread thread)))
             threads)))
 (defmethod shutdown :before ((obj client))
-  (display-i2c "Shutting down")
   (f-format t "Attempting to shutdown client connection to ~s~%" (ip obj)))
 (defmethod shutdown :after ((obj client))
-  (display-i2c "Shutdown complete")
   (f-format t "Shutdown complete~%"))
 (defmethod shutdown ((obj client))
   "shuts down the connection on server"
   (find-and-kill-thread (processor-name obj))
-  (usocket:socket-close (c-socket obj)))
+  (usocket:socket-close (c-socket obj))
+  (remhash (processor-name obj) *current-clients*))
 
 
 

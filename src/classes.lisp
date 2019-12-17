@@ -13,9 +13,10 @@
   (:documentation "class containing the slots required for the client"))
 
 
-(defclass server (connection)
-  ((current-connections :accessor current-connections :initform (make-hash-table))
-   (receive-connections-function :accessor receive-connections-function))
+(defclass server ()
+  ((name :accessor name :initarg :name)
+   (current-connections :accessor current-connections :initform (make-hash-table))
+   (receive-connections-function :accessor receive-connections-function :initform :connections-function-not-set))
   (:documentation "Class that manages the server"))
 
 
@@ -27,19 +28,21 @@
 (defclass data-packet (packet)
   ((data-length :accessor d-len :initform :data-length-not-set)
    (data :accessor data :initform :data-not-set)))
+(defclass identify-packet (packet)
+  (id :accessor id :initform :id-not-set))
 (defclass kill-packet (packet)
   ()
   (:documentation "Kill packet doesn't have any special information in it so it just inherits from packet. The reason for its existence is so that methods can dispatch on the class"))
 
 (defmethod print-object ((object server) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%Current-connections: ~A~%Receive-connections-function: ~A~%"
-            (ip object)
-            (port object)
-            (c-socket object)
-            (c-stream object)
-            (current-connections object)
-            (receive-connections-function object))))
+    (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Current-connections: ~A~%"
+            (name object)
+            (receive-connections-function object)
+            (maphash (lambda (key val)
+                       (declare (ignore key))
+                       (print-object val))
+                     (current-connections object)))))
 (defmethod print-object ((object client) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%packet-processor-functions: ~A~%Processor thread name: ~A~%"

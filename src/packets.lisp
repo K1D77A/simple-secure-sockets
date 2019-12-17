@@ -9,6 +9,12 @@
 
 
 
+(defun read-n-bytes (n stream)
+  "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
+  (let ((data (make-array n :element-type '(unsigned-byte 8))))
+    (dotimes (i n data)
+      (setf (aref data i) (read-byte stream)))))
+
 (defmethod download-sequence ((obj client))
   "Method that handles downloading a complete sequence"
   (let ((packet (make-instance 'packet)))
@@ -24,15 +30,15 @@
   (f-format t "-Header read~%"))
 (defmethod read-header ((obj client) (packet packet))
   (setf (header packet)
-        (byte-vector-to-string (read-n-bytes-with-leds
+        (byte-vector-to-string (read-n-bytes
                                 (length %start-header) (c-stream obj)))))
 (defmethod read-op :before ((obj client)(packet packet))
   (f-format t "--Reading op~%"))
 (defmethod read-op :after ((obj client)(packet packet))
   (f-format t "--OP read~%"))
 (defmethod read-op ((obj client)(packet packet))
-  (let ((op (read-byte-with-leds (c-stream obj))))
-    (setf (op packet)(intern (string (code-char op)) :keyword))
+  (let ((op (read-byte (c-stream obj))))
+    (setf (op packet) (intern (string (code-char op)) :keyword))
     (if (equal (op packet) (intern %op-data :keyword))
         (change-class packet 'data-packet)
         (change-class packet 'kill-packet))))
@@ -49,8 +55,8 @@
   "Thisn here handles the op code 'd' by downloading the correct amount of data and placing it in the 
 correct place in the packet"
   (let* ((stream (c-stream obj))
-         (len (read-byte-with-leds stream))
-         (bytes (read-n-bytes-with-leds len stream))
+         (len (read-byte stream))
+         (bytes (read-n-bytes len stream))
          (data-string (byte-vector-to-string bytes)))
     (setf (d-len packet) len
           (data packet) data-string)))
@@ -62,12 +68,12 @@ correct place in the packet"
   (f-format t "-footer read~%Packet End!~%"))
 (defmethod read-footer ((obj client)(packet packet))
   (setf (footer packet)
-        (byte-vector-to-string (read-n-bytes-with-leds (length %stop-footer) (c-stream obj)))))
+        (byte-vector-to-string (read-n-bytes (length %stop-footer) (c-stream obj)))))
 
 (defmethod build-data-packets ((data string))
   (let* ((start (vectorize-data (concatenate 'string %start-header %op-data)))
          (len (make-array 1 :element-type '(unsigned-byte 8) :initial-element (length data)))
-         (end  (vectorize-data (concatenate 'string data %stop-footer)))         
+         (end (vectorize-data (concatenate 'string data %stop-footer)))         
          (arr (concatenate '(vector (unsigned-byte 8)) start len end)))
     (f-format t "data: ~s~%" arr)
     (if (validate-length arr)
@@ -89,3 +95,17 @@ correct place in the packet"
 
 (defun build-kill-packets ()
   (vectorize-data (concatenate 'string %start-header %op-kill  %stop-footer)))
+
+
+(defmethod send-data (data (obj server))
+  "sends the data in the form of a byte array over the network to the client"
+  (with-accessors ((connection c-stream))
+      obj
+    (let ((seq (build-data-packets data)));;build data handles converting between data types
+      (write-sequence seq connection)
+      (force-output connection))))
+(defmethod send-kill ((obj server))
+  (with-accessors ((connection c-stream))
+      obj
+    (write-sequence (build-kill-packets) connection)
+    (force-output connection)))
