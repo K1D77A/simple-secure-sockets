@@ -14,6 +14,6 @@
                  (:file "client")
                  (:file "server"))
   :depends-on   (#:usocket
-                 #:bordeaux-threads
+                 #:lparallel
                  #:ironclad))
 

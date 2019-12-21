@@ -8,8 +8,8 @@
 (defgeneric process-packet (connection packet)
   (:documentation "method that will handle processing packets for either the server or client"))
 
-(defgeneric dispatch-on-op (connection op function)
-  (:documentation "Adds a function that will be called when a packet is downloaded. the function accepts a packet as an argument "))
+(defgeneric dispatch-on-op (connection op function args-in-a-list)
+  (:documentation "Adds a function that will be called when a packet is downloaded. the function accepts an object of type packet and a single list which contains other data you wish to pass to the function"))
 
 
 (defgeneric shutdown  (connection)

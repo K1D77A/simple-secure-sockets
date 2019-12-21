@@ -4,7 +4,7 @@
 (defvar %op-data "d")
 (defvar %op-kill "k")
 (defvar %stop-footer "stop")
-(defparameter *op-keywords* (list :DATA :KILL))
+(defparameter *op-keywords* (list :ALL :IDENTIFY :DATA :KILL))
 
 (defparameter *DEBUG-OUTPUT* t)
 
@@ -36,3 +36,6 @@
   "takes in a string and converts it to an array of type '(unsigned-byte 8)"
   (let ((arr (make-array (length data) :element-type '(unsigned-byte 8))))
     (map-into arr #'char-code data)))
+
+(defun string-to-keyword (string)
+  (intern string :keyword))

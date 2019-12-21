@@ -23,33 +23,6 @@
 (defun get-client (name)
   (gethash name *current-clients*))
 
-(defmethod packet-download-function ((obj client))
-  "Keeps calling the function download-sequence until the thread is manually killed"
-  (with-accessors ((functions packet-processors-functions))
-      obj
-    (loop :for packet := (download-sequence obj) :then (download-sequence obj)
-          :do (process-packet obj packet))))
-
-(defmethod process-packet ((obj client)(packet data-packet))
-  "Processes the data-packets for client. It calls all the functions that are contained within a list under the key :DATA in the slot 'packet-processor-functions' with the argument packet. If you destructively modify packet then any functions after will be passed the modified version of packet"
-  (with-accessors ((functions-hash ppf))
-      obj
-    (let ((functions (gethash :DATA functions-hash)));;this possible here that instead of having
-      (mapcar (lambda (func);;functions that dispatch on an OP code I could instead dispatch on
-                (funcall func packet));;the class name ie (gethash 'data-packet ..) then when
-              functions))));;a new function needs to be added only the class name needs to be
-;;entered into the function 
-
-(defmethod process-packet ((obj client)(packet kill-packet))
-  (shutdown obj))
-
-(defmethod dispatch-on-op ((obj client) op function)
-  (if (and (keywordp op) (functionp function) (find op *op-keywords*))
-      (push function (gethash op (ppf obj)))
-      (error "Either op is not a keyword or is not valid see *op-keywords* or function is not a function like #'. OP: ~s~%Func: ~s~%Valid OPs: ~S"
-             (type-of op)
-             (type-of function)
-             *op-keywords*)))
 
 
 (defun make-client (name ip port)
@@ -62,8 +35,9 @@
                                     (unless (equal (c-socket client) :socket-not-set)
                                       (usocket:socket-close (c-socket client)))
                                     client)))
-    (setf (gethash name *current-clients*) client)
-    (setf (processor-name client) name)
+    (setf (gethash name *current-clients*) client
+          (connection-name client) name
+          (processor-name client) name)
     (let ((bt:*default-special-bindings*(acons '*standard-output* *standard-output*
                                                bt:*default-special-bindings*)))
       (bt:make-thread (lambda () (packet-download-function client))
