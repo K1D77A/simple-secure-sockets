@@ -32,10 +32,15 @@
   (read-from-string (coerce chars-sequence 'string)))
 
 
-(defmethod vectorize-data ((data string))
+(defun vectorize-data (data &optional (set-length nil))
   "takes in a string and converts it to an array of type '(unsigned-byte 8)"
-  (let ((arr (make-array (length data) :element-type '(unsigned-byte 8))))
+  (when (not (stringp data))
+    (error "Data is not a string: ~A" (type-of data)))
+  (let ((arr (make-array (if set-length
+                             set-length
+                             (length data))
+                         :element-type '(unsigned-byte 8))))
     (map-into arr #'char-code data)))
 
-(defun string-to-keyword (string)
-  (intern string :keyword))
+  (defun string-to-keyword (string)
+    (intern string :keyword))

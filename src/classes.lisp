@@ -9,7 +9,8 @@
 
 
 (defclass client (connection)
-  ((packet-processor-functions :accessor ppf :initform (make-hash-table))
+  ((server-name :accessor server-name :initform "")
+   (packet-processor-functions :accessor ppf :initform (make-hash-table))
    (processor-name :accessor processor-name :initform :name-of-processor-thread-not-set))
   (:documentation "class containing the slots required for the client"))
 
@@ -26,8 +27,7 @@
 
 
 (defclass packet ()
-  ((recipient :accessor recipient :initform :sender-not-set)
-   (header :accessor header :initform :header-not-set)
+  ((header :accessor header :initform :header-not-set)
    (footer :accessor footer :initform :footer-not-set)
    (op :accessor op :initform :op-not-set)))
 (defclass data-packet (packet)

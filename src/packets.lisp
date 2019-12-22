@@ -76,7 +76,9 @@ correct place in the packet"
          (data-string (byte-vector-to-string bytes)))
     (setf (d-len packet) len
           (data packet) data-string)))
-                                        ;(defmethod handle-op ((obj connection) (packet identify-packet))
+(defmethod handle-op ((obj connection) (packet identify-packet))
+  (setf (id packet)
+        (byte-vector-to-string (read-n-bytes 16 obj))))
 
 
 
@@ -88,9 +90,15 @@ correct place in the packet"
   (setf (footer packet)
         (byte-vector-to-string (read-n-bytes (length %stop-footer) (c-stream obj)))))
 
-(defmethod build-data-packets ((data string))
+
+;;;;gonna change the send to a generic function that accepts the packet types as
+;;;;argument and a connection
+
+
+;;;;
+(defmethod build-data-packets (recipient (data string))
   (let* ((start (vectorize-data (concatenate 'string %start-header %op-data)))
-         (recipient (vectorize-data (recipient data)))
+         (recipient (vectorize-data recipient  %connection-name-len))
          (len (make-array 1 :element-type '(unsigned-byte 8) :initial-element (length data)))
          (end (vectorize-data (concatenate 'string data %stop-footer)))         
          (arr (concatenate '(vector (unsigned-byte 8)) start recipient len end)))
@@ -99,9 +107,9 @@ correct place in the packet"
         arr
         (error "Packet is too large so dropping. Length: ~A~%" (length arr)))))
 
-(defmethod build-data-packets ((data list))
-  (build-data-packets (list-to-string data)))
-(defmethod build-data-packets (data)
+(defmethod build-data-packets (recipient (data list))
+  (build-data-packets recipient (list-to-string data)))
+(defmethod build-data-packets (recipient data)
   (error "No generic method exists for the type of data supplied: ~A~%" (type-of data)))
 
 (defun validate-length (data)
@@ -109,23 +117,26 @@ correct place in the packet"
   (<= (length data) 255))
 
 (defun build-kill-packets ()
-  (vectorize-data (concatenate 'string %start-header %op-kill  %stop-footer)))
+  (vectorize-data (concatenate 'string %start-header "iwanttodieplease" %op-kill  %stop-footer)))
+;;iwanttodieplease  is currently a place holder that is 16 long
 
-
-(defmethod send-data (data (obj server))
+(defmethod send-data (recipient data (obj connection))
   "sends the data in the form of a byte array over the network to the client"
   (with-accessors ((connection c-stream))
       obj
-    (let ((seq (build-data-packets data)));;build data handles converting between data types
+    (let ((seq (build-data-packets recipient data)));;build data handles converting between data types
       (write-sequence seq connection)
       (force-output connection))))
-(defmethod send-kill ((obj server))
+(defmethod send-kill ((obj connection))
   (with-accessors ((connection c-stream))
       obj
     (write-sequence (build-kill-packets) connection)
     (force-output connection)))
-
-
+(defmethod send-identify ((obj connection))
+  (with-accessors ((connection c-stream))
+      obj
+    (write-sequence (build-kill-packets) connection)
+    (force-output connection)))
 (defmethod packet-download-function ((obj client))
   "Keeps calling the function download-sequence until the thread is manually killed"
   (with-accessors ((functions packet-processors-functions))

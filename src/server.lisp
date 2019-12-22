@@ -45,7 +45,14 @@
                                     connection)))
     ;;we need to accept one identity packet first, set the name of the client and then use that as the
     ;;key in the current-connections hash-table
-    (setf )))
+    (let ((identify-packet (download-sequence connection)))
+      (when (equal (type-of identify-packet) 'identify-packet)
+        (let ((id (id identify-packet)))
+          (setf (connection-name connection) id)
+          (setf (gethash id (current-connections obj)) connection))
+        
+        
+        (error "Packet received was not an identify-packet")))))
 (defmethod shutdown :before ((obj server))
   (f-format t "Attempting to shutdown server~%"))
 (defmethod shutdown :after ((obj server))

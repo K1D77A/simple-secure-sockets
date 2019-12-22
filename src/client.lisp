@@ -63,7 +63,14 @@
                                            :protocol :stream
                                            :element-type '(unsigned-byte 8))))
       (setf socket connect)
-      (setf stream (usocket:socket-stream connect)))))
+      (setf stream (usocket:socket-stream connect))
+      (send-identify (connection-name obj) obj);send identify packet
+      (let* ((packet (download-sequence obj)) ;get back confirmation
+             (data (data packet)))
+        (if (string= data "Success")
+            (f-format t "Connection successful~%")
+            (progn (f-format t "Connection failed~%")
+                   (shutdown obj)))))))
 
 (defun find-and-kill-thread (name)
   "finds and kills the thread 'name'"
