@@ -27,9 +27,10 @@
 
 
 (defclass packet ()
-  ((header :accessor header :initform :header-not-set)
-   (footer :accessor footer :initform :footer-not-set)
-   (op :accessor op :initform :op-not-set)))
+  ((recipient :accessor recipient :initarg :recipient :initform :recipient-not-set)
+   (header :accessor header :initform %start-header)
+   (footer :accessor footer :initform %stop-footer)
+   (op :accessor op :initarg :op :initform :op-not-set)))
 (defclass data-packet (packet)
   ((data-length :accessor d-len :initform :data-length-not-set)
    (data :accessor data :initform :data-not-set)))

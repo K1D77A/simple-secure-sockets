@@ -1,20 +1,28 @@
 
 (in-package :simple-secure-sockets)
 
+(defparameter *var-hashtable* (make-hash-table))
+(defvar-hash %start-header "start")
+(defvar-hash %op-data "d")
+(defvar-hash %op-kill "k")
+(defvar-hash %op-identify "i")
+(defvar-hash %stop-footer "stop")
+(defvar-hash %connection-name-len 16);bytes
+(defvar-hash %kill-recipient "iwanttodieplease")
+(defvar-hash %identify-recipient "letmeidentifyplz")
+(defvar-hash %max-data-size 255);1byte len
+(defmacro defvar-hash (symbol val)
+  "Defines a variable with defvar named with symbol and given the value val. This is also put into the hashtable *var-hashtable* with the same symbol and val"
+  `(progn (defvar ,symbol ,val)
+          (unless (gethash ,symbol *var-hashtable*)
+            (setf (gethash ,symbol *var-hashtable*) ,val))))
+  
 
-(defvar %start-header "start")
-(defvar %op-data "d")
-(defvar %op-kill "k")
-(defvar %op-identify "i")
-(defvar %stop-footer "stop")
-(defvar %connection-name-len 16);bytes
-
-
-(defun read-n-bytes (n stream)
-  "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
-  (let ((data (make-array n :element-type '(unsigned-byte 8))))
-    (dotimes (i n data)
-      (setf (aref data i) (read-byte stream)))))
+  (defun read-n-bytes (n stream)
+    "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
+    (let ((data (make-array n :element-type '(unsigned-byte 8))))
+      (dotimes (i n data)
+        (setf (aref data i) (read-byte stream)))))
 
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence"
@@ -94,6 +102,31 @@ correct place in the packet"
 ;;;;gonna change the send to a generic function that accepts the packet types as
 ;;;;argument and a connection
 
+(defun build-packet (recipient op)
+  "takes in a recipient and creates an instance of packet"
+  (unless (n-or-lessp %connection-name-len recipient)
+    (error "recipient does not satisfy predicate n-or-lessp. Recipient: ~A~%Length: ~A" recipient (length recipient)))
+  (make-instance 'packet :recipient recipient :op op))
+(defun build-kill-packet ()
+  (let ((packet (build-packet %kill-recipient %op-kill)))
+    (change-class packet 'kill-packet)))
+(defun build-identify-packet (id)
+  (unless (n-or-lessp %connection-name-len id)
+    (error "id does not satisfy predicate n-or-lessp. ID: ~A~%Length: ~A" id (length id)))
+  (let ((packet (build-packet %identify-recipient %op-identify)))
+    (change-class packet 'identify-packet)
+    (setf (id packet) id)
+    packet))
+(defun build-data-packet (recipient data)
+  (let ((packet (build-packet recipient %op-data))
+        (len (length data)))
+    (unless (<= len %max-data-size)
+      (error "Data is longer than ~A which is the current hard limit on data size. Length: ~A" %max-data-size (length data)))
+    (change-class packet 'data-packet)
+    (setf (d-len packet) len)
+    (setf (data packet) data)
+    packet))
+
 
 ;;;;
 (defmethod build-data-packets (recipient (data string))
@@ -116,27 +149,8 @@ correct place in the packet"
   "max length is 255 plus the length of the headers and op code. 255 is because only one byte is used to tell the client the length of the data coming.";;if I wanted to have more than 255 I could
   (<= (length data) 255))
 
-(defun build-kill-packets ()
-  (vectorize-data (concatenate 'string %start-header "iwanttodieplease" %op-kill  %stop-footer)))
-;;iwanttodieplease  is currently a place holder that is 16 long
 
-(defmethod send-data (recipient data (obj connection))
-  "sends the data in the form of a byte array over the network to the client"
-  (with-accessors ((connection c-stream))
-      obj
-    (let ((seq (build-data-packets recipient data)));;build data handles converting between data types
-      (write-sequence seq connection)
-      (force-output connection))))
-(defmethod send-kill ((obj connection))
-  (with-accessors ((connection c-stream))
-      obj
-    (write-sequence (build-kill-packets) connection)
-    (force-output connection)))
-(defmethod send-identify ((obj connection))
-  (with-accessors ((connection c-stream))
-      obj
-    (write-sequence (build-kill-packets) connection)
-    (force-output connection)))
+
 (defmethod packet-download-function ((obj client))
   "Keeps calling the function download-sequence until the thread is manually killed"
   (with-accessors ((functions packet-processors-functions))

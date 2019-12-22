@@ -31,16 +31,27 @@
 (defun chars-sequence-to-list (chars-sequence)
   (read-from-string (coerce chars-sequence 'string)))
 
+(defun n-or-lessp (n seq)
+  "check if seq is greater than 0, n or less"
+  (if (<= 1 (length seq) n)
+      t
+      nil))
 
 (defun vectorize-data (data &optional (set-length nil))
   "takes in a string and converts it to an array of type '(unsigned-byte 8)"
-  (when (not (stringp data))
-    (error "Data is not a string: ~A" (type-of data)))
   (let ((arr (make-array (if set-length
                              set-length
                              (length data))
                          :element-type '(unsigned-byte 8))))
-    (map-into arr #'char-code data)))
+    (map-into arr #'char-code
+              (cond ((stringp data)
+                     data)
+                    ((listp data)
+                     (list-to-string data))
+                    ((integerp data)
+                     (format nil "~d" data))
+                    (t
+                     (error "Don't know how to convert ~A into a string. ~A" data (type-of data)))))))
 
-  (defun string-to-keyword (string)
-    (intern string :keyword))
+(defun string-to-keyword (string)
+  (intern string :keyword))
