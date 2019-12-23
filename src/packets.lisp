@@ -16,13 +16,13 @@
   `(progn (defvar ,symbol ,val)
           (unless (gethash ,symbol *var-hashtable*)
             (setf (gethash ,symbol *var-hashtable*) ,val))))
-  
 
-  (defun read-n-bytes (n stream)
-    "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
-    (let ((data (make-array n :element-type '(unsigned-byte 8))))
-      (dotimes (i n data)
-        (setf (aref data i) (read-byte stream)))))
+
+(defun read-n-bytes (n stream)
+  "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
+  (let ((data (make-array n :element-type '(unsigned-byte 8))))
+    (dotimes (i n data)
+      (setf (aref data i) (read-byte stream)))))
 
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence"
@@ -40,16 +40,16 @@
   (f-format t "-Header read~%"))
 (defmethod read-header ((obj connection) (packet packet))
   (setf (header packet)
-        (byte-vector-to-string (read-n-bytes
-                                (length %start-header) (c-stream obj)))))
+        (convert-to-string (read-n-bytes
+                            (length %start-header) (c-stream obj)))))
 (defmethod read-recipient :before ((obj connection) (packet packet))
   (f-format t "-Reading recipient~%"(get-universal-time)))
 (defmethod read-recipient :after ((obj connection) (packet packet))
   (f-format t "-Recipient read~%"))
 (defmethod read-recipient ((obj connection) (packet packet))
   (setf (recipient packet)
-        (byte-vector-to-string (read-n-bytes
-                                %connection-name-len (c-stream obj)))))
+        (convert-to-string (read-n-bytes
+                            %connection-name-len (c-stream obj)))))
 
 (defmethod read-op :before ((obj connection)(packet packet))
   (f-format t "--Reading op~%"))
@@ -81,12 +81,12 @@ correct place in the packet"
   (let* ((stream (c-stream obj))
          (len (read-byte stream))
          (bytes (read-n-bytes len stream))
-         (data-string (byte-vector-to-string bytes)))
+         (data-string (convert-to-string bytes)))
     (setf (d-len packet) len
           (data packet) data-string)))
 (defmethod handle-op ((obj connection) (packet identify-packet))
   (setf (id packet)
-        (byte-vector-to-string (read-n-bytes 16 obj))))
+        (convert-to-string (read-n-bytes 16 obj))))
 
 
 
@@ -96,7 +96,7 @@ correct place in the packet"
   (f-format t "-footer read~%Packet End!~%"))
 (defmethod read-footer ((obj connection)(packet packet))
   (setf (footer packet)
-        (byte-vector-to-string (read-n-bytes (length %stop-footer) (c-stream obj)))))
+        (convert-to-string (read-n-bytes (length %stop-footer) (c-stream obj)))))
 
 
 ;;;;gonna change the send to a generic function that accepts the packet types as
@@ -104,52 +104,75 @@ correct place in the packet"
 
 (defun build-packet (recipient op)
   "takes in a recipient and creates an instance of packet"
-  (unless (n-or-lessp %connection-name-len recipient)
-    (error "recipient does not satisfy predicate n-or-lessp. Recipient: ~A~%Length: ~A" recipient (length recipient)))
-  (make-instance 'packet :recipient recipient :op op))
+  (let ((rec-vecced (vectorize-data recipient %connection-name-len))
+        (op-vecced (vectorize-data op))
+        (foot-vecced (vectorize-data %stop-footer))
+        (head-vecced (vectorize-data %start-header)))
+    (unless (n-or-lessp %connection-name-len rec-vecced)
+      (error "recipient does not satisfy predicate n-or-lessp. Recipient: ~A~%Length: ~A" recipient (length recipient)))
+    (make-instance 'packet
+                   :recipient rec-vecced
+                   :op op-vecced
+                   :footer foot-vecced
+                   :header head-vecced)))
+
 (defun build-kill-packet ()
   (let ((packet (build-packet %kill-recipient %op-kill)))
     (change-class packet 'kill-packet)))
+
 (defun build-identify-packet (id)
-  (unless (n-or-lessp %connection-name-len id)
-    (error "id does not satisfy predicate n-or-lessp. ID: ~A~%Length: ~A" id (length id)))
-  (let ((packet (build-packet %identify-recipient %op-identify)))
-    (change-class packet 'identify-packet)
-    (setf (id packet) id)
-    packet))
+  (let ((id-vecced (vectorize-data id %connection-name-len)))
+    (unless (n-or-lessp %connection-name-len id)
+      (error "id does not satisfy predicate n-or-lessp. ID: ~A~%Length: ~A" id (length id)))
+    (let ((packet (build-packet %identify-recipient %op-identify)))
+      (change-class packet 'identify-packet)
+      (setf (id packet) id-vecced)
+      packet)))
+
 (defun build-data-packet (recipient data)
-  (let ((packet (build-packet recipient %op-data))
-        (len (length data)))
-    (unless (<= len %max-data-size)
-      (error "Data is longer than ~A which is the current hard limit on data size. Length: ~A" %max-data-size (length data)))
+  (let* ((packet (build-packet recipient %op-data))
+         (d-vecced (vectorize-data data))
+         (len (length d-vecced)))
+    (unless (<= len  %max-data-size)
+      (error "Data is longer than ~A which is the current hard limit on data size. Length: ~A" %max-data-size len))
     (change-class packet 'data-packet)
-    (setf (d-len packet) len)
-    (setf (data packet) data)
+    (setf (d-len packet) (make-array 1 :element-type '(unsigned-byte 8) :initial-element len))
+    (setf (data packet) d-vecced)
     packet))
 
-
-;;;;
-(defmethod build-data-packets (recipient (data string))
-  (let* ((start (vectorize-data (concatenate 'string %start-header %op-data)))
-         (recipient (vectorize-data recipient  %connection-name-len))
-         (len (make-array 1 :element-type '(unsigned-byte 8) :initial-element (length data)))
-         (end (vectorize-data (concatenate 'string data %stop-footer)))         
-         (arr (concatenate '(vector (unsigned-byte 8)) start recipient len end)))
-    (f-format t "data: ~s~%" arr)
-    (if (validate-length arr)
-        arr
-        (error "Packet is too large so dropping. Length: ~A~%" (length arr)))))
-
-(defmethod build-data-packets (recipient (data list))
-  (build-data-packets recipient (list-to-string data)))
-(defmethod build-data-packets (recipient data)
-  (error "No generic method exists for the type of data supplied: ~A~%" (type-of data)))
-
-(defun validate-length (data)
-  "max length is 255 plus the length of the headers and op code. 255 is because only one byte is used to tell the client the length of the data coming.";;if I wanted to have more than 255 I could
-  (<= (length data) 255))
-
-
+(defmethod send (connection (packet data-packet))
+  (with-accessors ((recipient recipient)
+                   (data data)
+                   (len d-len)
+                   (header header)
+                   (footer footer)
+                   (op op))
+      packet
+    (write-sequence 
+     (concatenate '(vector (unsigned-byte 8))
+                  header recipient op len data footer)
+     (c-stream connection))))
+(defmethod send (connection (packet kill-packet))
+  (with-accessors ((recipient recipient)
+                   (header header)
+                   (footer footer)
+                   (op op))
+      packet
+    (write-sequence 
+     (concatenate '(vector (unsigned-byte 8))
+                  header recipient op footer)
+     (c-stream connection))))
+(defmethod send (connection (packet identify-packet))
+  (with-accessors ((recipient recipient)
+                   (header header)
+                   (id id)
+                   (footer footer)
+                   (op op))
+      packet
+    (write-sequence 
+     (concatenate '(vector (unsigned-byte 8))
+                  header recipient op id footer)
+     (c-stream connection))))
 
 (defmethod packet-download-function ((obj client))
   "Keeps calling the function download-sequence until the thread is manually killed"

@@ -36,22 +36,33 @@
   (if (<= 1 (length seq) n)
       t
       nil))
+(defmacro with-unsigned-byte-8-array (n &body body)
+  "Creates an unsigned-byte-array of size n and is accessible through the variable name 'arr'"
+  `(let ((arr (make-array ,n :element-type '(unsigned-byte 8))))
+     ,@body))
+
+(defgeneric convert-to-string (data)
+  (:documentation "converts a variety of data types into a string")
+  (:method ((data string))
+    data)
+  (:method ((data list))
+    (format nil "~A" data))
+  (:method ((data integer))
+    (format nil "~d" data))
+  (:method ((data float))
+    (format nil "~d" data))
+  (:method ((data simple-array))
+    (byte-vector-to-string data))
+  (:method (data)
+    (format nil "~A" data)))
+
 
 (defun vectorize-data (data &optional (set-length nil))
   "takes in a string and converts it to an array of type '(unsigned-byte 8)"
-  (let ((arr (make-array (if set-length
-                             set-length
-                             (length data))
-                         :element-type '(unsigned-byte 8))))
-    (map-into arr #'char-code
-              (cond ((stringp data)
-                     data)
-                    ((listp data)
-                     (list-to-string data))
-                    ((integerp data)
-                     (format nil "~d" data))
-                    (t
-                     (error "Don't know how to convert ~A into a string. ~A" data (type-of data)))))))
+  (let* ((as-string (convert-to-string data))
+         (arr (make-array (or set-length (length as-string))
+                          :element-type '(unsigned-byte 8))))
+    (map-into arr #'char-code as-string)))
 
 (defun string-to-keyword (string)
   (intern string :keyword))

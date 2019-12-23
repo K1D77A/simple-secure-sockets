@@ -28,8 +28,8 @@
 
 (defclass packet ()
   ((recipient :accessor recipient :initarg :recipient :initform :recipient-not-set)
-   (header :accessor header :initform %start-header)
-   (footer :accessor footer :initform %stop-footer)
+   (header :accessor header :initarg :header :initform :header-not-set)
+   (footer :accessor footer :initarg :footer :initform :footer-not-set)
    (op :accessor op :initarg :op :initform :op-not-set)))
 (defclass data-packet (packet)
   ((data-length :accessor d-len :initform :data-length-not-set)
@@ -66,4 +66,4 @@
 (defmethod print-object ((object data-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~%Data: ~s~%"
-            (data object))))
+            (convert-to-string (data object)))))
