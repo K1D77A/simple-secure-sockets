@@ -11,16 +11,22 @@
 (defun make-server (name listen-ip &optional (listen-port 55555))
   (unless (stringp name)
     (error "Name should be a string: ~s" name))
-  (let ((server (make-instance 'server :ip ip :port port :name name)))
-    (handler-case (progn (set-server-socket server)
-                         (wait-for-client server))
-      (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c)
+  (let ((server (make-instance 'server :ip listen-ip :port listen-port :name name)))
+    (handler-case (progn (set-threads-to-std-out)
+                         (setf (receive-connections-function server)
+                               (format nil "server-~A-receive " name))
+                         (setf (process-packets-function server)
+                               (format nil "server-~A-packet-process" name))
+                         (bt:make-thread (lambda ()
+                                           (accept-connections server))
+                                         :name name))
+      (serious-condition (c) (progn (format t "Error of some sort oof2: ~s~%" c)
                                     (unless
                                         (equal (c-socket server)
                                                :server-socket-not-set)
-                                      (usocket:socket-close (c-socket server)))
+                                      (shutdown server))
                                     server)))
-    (print-object server t)
+                                        ; (print-object server t)
     server))
 (defun start (name ip port)
   (make-server name ip port))
@@ -33,26 +39,35 @@
   "pushes all the packets received to the queue that is supplied as the first argument in the list args-in-a-list"
   (lparallel.queue:push-queue packet (first args-in-a-list)))
 (defmethod accept-connections ((obj server))
-  (let ((connection (make-instance 'connection :ip (ip obj) :port (port obj))))
-    (handler-case (progn (set-server-socket connection)
-                         (dispatch-on-op connection :ALL #'push-to-queue (list (packet-queue obj)))
-                         (wait-for-client connection))
-      (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c)
-                                    (unless
-                                        (equal (c-socket connection)
-                                               :socket-not-set)
-                                      (usocket:socket-close (c-socket connection)))
-                                    connection)))
-    ;;we need to accept one identity packet first, set the name of the client and then use that as the
-    ;;key in the current-connections hash-table
-    (let ((identify-packet (download-sequence connection)))
-      (when (equal (type-of identify-packet) 'identify-packet)
-        (let ((id (id identify-packet)))
-          (setf (connection-name connection) id)
-          (setf (gethash id (current-connections obj)) connection))
-        
-        
-        (error "Packet received was not an identify-packet")))))
+  (loop :do 
+    (let ((connection (make-instance 'connection :ip (ip obj) :port (port obj))))
+      (handler-case (progn (set-server-socket connection)
+                           (f-format t "made it~%")
+                           (wait-for-connection connection))
+        (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c)
+                                      (shutdown connection)
+                                      connection)))
+      ;;we need to accept one identity packet first, set the name of the client and then use that
+      ;;key in the current-connections hash-table
+      (f-format t "------WAITING ON IDENTIFY-------~%")
+      (let ((identify-packet (download-sequence connection)))
+        (f-format t "-----A PACKET HAS BEEN RECEIVED-------~%")
+        (if (equal (type-of identify-packet) 'identify-packet)
+            (let ((id (id identify-packet)))
+              (setf (connection-name connection) id)
+              (setf (gethash id (current-connections obj)) connection)
+ ;;;can't dispatch on connections currently... connection dont have packet-processor-functions or  ;;;processor names    
+              ;;   (dispatch-on-op connection :ALL #'push-to-queue (list (packet-queue obj)))
+              ;;   (bt:make-thread (lambda ()
+              ;;                     (packet-download-function ))
+              
+              (error "Packet received was not an identify-packet")))))))
+
+(defmethod shutdown ((obj connection))
+  "shuts down the connection on server"
+                                        ; (print-object obj t)
+  ;;(find-and-kill-thread (processor-name obj))
+  (usocket:socket-close (c-socket obj)))
 (defmethod shutdown :before ((obj server))
   (f-format t "Attempting to shutdown server~%"))
 (defmethod shutdown :after ((obj server))
@@ -62,19 +77,20 @@
   (let ((table (current-connections obj)))
     (maphash (lambda (key val)
                (shutdown val)
+               ;;(find-and-kill-thread ())
                (remhash key table))
              table)
     ;;need to stop the function that is accepting new connections
     (sleep 1)))
 
-(defmethod set-server-socket :before ((obj connection))
+(defmethod set-server-socket :before ((object connection))
   (f-format t "Creating socket~%"))
-(defmethod set-server-socket :after ((obj connection))
-  (f-format t "Socket created: ~A~%" (c-socket obj)))
-(defmethod set-server-socket ((obj connection))
-  (setf (c-socket obj)
-        (usocket:socket-listen  (ip obj)
-                                (port obj)
+(defmethod set-server-socket :after ((object connection))
+  (f-format t "Socket created: ~A~%" (c-socket object)))
+(defmethod set-server-socket ((object connection))
+  (setf (c-socket object)
+        (usocket:socket-listen  (ip object)
+                                (port object)
                                 :element-type '(unsigned-byte 8)
                                 :reuse-address t
                                 :reuseaddress t)))
@@ -87,8 +103,10 @@
             (usocket:get-peer-port (c-socket obj))))
 (defmethod wait-for-connection ((obj connection))
   "takes the obj and waits until it has a connection and then sets the stream"
-  (let ((wait (usocket:socket-accept (c-socket obj))))
-    (setf (c-stream obj) (usocket:socket-stream wait))))
+  (handler-case (let ((wait (usocket:socket-accept (c-socket obj))))
+                  (setf (c-stream obj) (usocket:socket-stream wait)))
+    (serious-condition (c) (progn (format t "Fatal issues waiting for connection: ~A" c)
+                                  (shutdown obj)))))
 
 
 ;;;very simple protocol to send data across the network

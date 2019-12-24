@@ -10,7 +10,9 @@
                  (:file "helpers")
                  (:file "classes")
                  (:file "generics")
-                 (:file "packets")
+                 (:file "packets/variables")
+                 (:file "packets/receive")
+                 (:file "packets/send")
                  (:file "client")
                  (:file "server"))
   :depends-on   (#:usocket

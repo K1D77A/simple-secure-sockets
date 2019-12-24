@@ -53,6 +53,8 @@
     (format nil "~d" data))
   (:method ((data simple-array))
     (byte-vector-to-string data))
+  (:method ((data character))
+    (string data))
   (:method (data)
     (format nil "~A" data)))
 
@@ -66,3 +68,8 @@
 
 (defun string-to-keyword (string)
   (intern string :keyword))
+
+(defun set-threads-to-std-out ()
+  (setf bt:*default-special-bindings*;;this sets the var of standard out for the threads
+        (acons '*standard-output* *standard-output*
+               bt:*default-special-bindings*)))

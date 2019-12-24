@@ -1,22 +1,6 @@
 
 (in-package :simple-secure-sockets)
 
-(defparameter *var-hashtable* (make-hash-table))
-(defvar-hash %start-header "start")
-(defvar-hash %op-data "d")
-(defvar-hash %op-kill "k")
-(defvar-hash %op-identify "i")
-(defvar-hash %stop-footer "stop")
-(defvar-hash %connection-name-len 16);bytes
-(defvar-hash %kill-recipient "iwanttodieplease")
-(defvar-hash %identify-recipient "letmeidentifyplz")
-(defvar-hash %max-data-size 255);1byte len
-(defmacro defvar-hash (symbol val)
-  "Defines a variable with defvar named with symbol and given the value val. This is also put into the hashtable *var-hashtable* with the same symbol and val"
-  `(progn (defvar ,symbol ,val)
-          (unless (gethash ,symbol *var-hashtable*)
-            (setf (gethash ,symbol *var-hashtable*) ,val))))
-
 
 (defun read-n-bytes (n stream)
   "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
@@ -57,14 +41,16 @@
   (f-format t "--OP read~%"))
 (defmethod read-op ((obj connection)(packet packet))
   (let* ((op (read-byte (c-stream obj)))
-         (interned (intern (string (code-char op)) :keyword)))
-    (setf (op packet) interned)
-    (cond ((equal (string-to-keyword %op-data) op)
+         (op-as-string (convert-to-string (code-char op))))
+    (setf (op packet) op-as-string)
+                                        ;(print-object packet t)
+    (cond ((string=  %op-data op-as-string)
            (change-class packet 'data-packet))
-          ((equal (string-to-keyword %op-kill) op)
+          ((string=  %op-kill op-as-string)
            (change-class packet 'kill-packet))
-          ((equal (string-to-keyword %op-identify) op)
-           (change-class packet 'identify-packet)))))
+          ((string= %op-identify op-as-string)
+           (change-class packet 'identify-packet))
+          (t (error "Packet taken in is not a valid packet ~A" packet)))))
 
 
 (defmethod handle-op :before ((obj connection)(packet packet))
@@ -86,7 +72,7 @@ correct place in the packet"
           (data packet) data-string)))
 (defmethod handle-op ((obj connection) (packet identify-packet))
   (setf (id packet)
-        (convert-to-string (read-n-bytes 16 obj))))
+        (convert-to-string (read-n-bytes %connection-name-len (c-stream obj)))))
 
 
 
@@ -102,77 +88,6 @@ correct place in the packet"
 ;;;;gonna change the send to a generic function that accepts the packet types as
 ;;;;argument and a connection
 
-(defun build-packet (recipient op)
-  "takes in a recipient and creates an instance of packet"
-  (let ((rec-vecced (vectorize-data recipient %connection-name-len))
-        (op-vecced (vectorize-data op))
-        (foot-vecced (vectorize-data %stop-footer))
-        (head-vecced (vectorize-data %start-header)))
-    (unless (n-or-lessp %connection-name-len rec-vecced)
-      (error "recipient does not satisfy predicate n-or-lessp. Recipient: ~A~%Length: ~A" recipient (length recipient)))
-    (make-instance 'packet
-                   :recipient rec-vecced
-                   :op op-vecced
-                   :footer foot-vecced
-                   :header head-vecced)))
-
-(defun build-kill-packet ()
-  (let ((packet (build-packet %kill-recipient %op-kill)))
-    (change-class packet 'kill-packet)))
-
-(defun build-identify-packet (id)
-  (let ((id-vecced (vectorize-data id %connection-name-len)))
-    (unless (n-or-lessp %connection-name-len id)
-      (error "id does not satisfy predicate n-or-lessp. ID: ~A~%Length: ~A" id (length id)))
-    (let ((packet (build-packet %identify-recipient %op-identify)))
-      (change-class packet 'identify-packet)
-      (setf (id packet) id-vecced)
-      packet)))
-
-(defun build-data-packet (recipient data)
-  (let* ((packet (build-packet recipient %op-data))
-         (d-vecced (vectorize-data data))
-         (len (length d-vecced)))
-    (unless (<= len  %max-data-size)
-      (error "Data is longer than ~A which is the current hard limit on data size. Length: ~A" %max-data-size len))
-    (change-class packet 'data-packet)
-    (setf (d-len packet) (make-array 1 :element-type '(unsigned-byte 8) :initial-element len))
-    (setf (data packet) d-vecced)
-    packet))
-
-(defmethod send (connection (packet data-packet))
-  (with-accessors ((recipient recipient)
-                   (data data)
-                   (len d-len)
-                   (header header)
-                   (footer footer)
-                   (op op))
-      packet
-    (write-sequence 
-     (concatenate '(vector (unsigned-byte 8))
-                  header recipient op len data footer)
-     (c-stream connection))))
-(defmethod send (connection (packet kill-packet))
-  (with-accessors ((recipient recipient)
-                   (header header)
-                   (footer footer)
-                   (op op))
-      packet
-    (write-sequence 
-     (concatenate '(vector (unsigned-byte 8))
-                  header recipient op footer)
-     (c-stream connection))))
-(defmethod send (connection (packet identify-packet))
-  (with-accessors ((recipient recipient)
-                   (header header)
-                   (id id)
-                   (footer footer)
-                   (op op))
-      packet
-    (write-sequence 
-     (concatenate '(vector (unsigned-byte 8))
-                  header recipient op id footer)
-     (c-stream connection))))
 
 (defmethod packet-download-function ((obj client))
   "Keeps calling the function download-sequence until the thread is manually killed"

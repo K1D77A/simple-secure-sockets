@@ -28,7 +28,7 @@
 (defun make-client (name ip port)
   (unless (stringp name)
     (error "Name should be a keyword: ~s" name))
-  (let ((client (make-instance 'client :ip ip :port port)))
+  (let ((client (make-instance 'client :ip ip :port port :connection-name name)))
     (handler-case (connect client)
       (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c )
                                     (print (c-socket client))
@@ -43,10 +43,7 @@
       (bt:make-thread (lambda () (packet-download-function client))
                       :name  (processor-name client)))   
     client))
-(defun set-threads-to-std-out ()
-  (setf bt:*default-special-bindings*;;this sets the var of standard out for the threads
-        (acons '*standard-output* *standard-output*
-               bt:*default-special-bindings*)))
+
 (defmethod connect :before ((obj client))
   (f-format t "Attempting to connect to host: ~s ~%" (ip obj)))
 (defmethod connect :after ((obj client))  
@@ -56,7 +53,8 @@
   (with-accessors ((ip ip)
                    (port port)
                    (socket c-socket)
-                   (stream c-stream))
+                   (stream c-stream)
+                   (name connection-name))
       obj
     (print-object obj t)
     (let ((connect (usocket:socket-connect ip port
@@ -64,13 +62,16 @@
                                            :element-type '(unsigned-byte 8))))
       (setf socket connect)
       (setf stream (usocket:socket-stream connect))
-      (send-identify (connection-name obj) obj);send identify packet
-      (let* ((packet (download-sequence obj)) ;get back confirmation
-             (data (data packet)))
-        (if (string= data "Success")
-            (f-format t "Connection successful~%")
-            (progn (f-format t "Connection failed~%")
-                   (shutdown obj)))))))
+      (sleep 1)
+      (f-format t "CLIENT SENDING IDENTIFY~%")
+      (send obj (build-identify-packet name))
+      (f-format t "CLIENT SENT IDENTIFY~%"))));send identify packet
+      ;; (let* ((packet (download-sequence obj)) ;get back confirmation
+      ;;        (data (data packet)))
+      ;;   (if (string= data "Success")
+      ;;       (f-format t "Connection successful~%")
+      ;;       (progn (f-format t "Connection failed~%")
+      ;;              (shutdown obj)))))))
 
 (defun find-and-kill-thread (name)
   "finds and kills the thread 'name'"
@@ -87,6 +88,7 @@
 (defmethod shutdown ((obj client))
   "shuts down the connection on server"
   (find-and-kill-thread (processor-name obj))
+  ;;need to send a kill packet
   (usocket:socket-close (c-socket obj))
   (remhash (processor-name obj) *current-clients*))
 
