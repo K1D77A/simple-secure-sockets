@@ -6,20 +6,32 @@
 (defparameter *ip* "127.0.0.1")
 (defparameter *port* 12345)
 
+(defparameter *current-servers* (make-hash-table :test 'equal))
+(defun start-server (name ip &optional (port 55555))
+  (if (unique-key-p *current-servers* name)
+      (setf (gethash name *current-servers*)
+            (make-server name ip port))
+      (error "name is not a unique name")))
+(defun stop-server (name)
+  "stops a server based on its name"
+  (let ((server (gethash name *current-servers*)))
+    (shutdown server)
+    (remhash name *current-servers*)))
 
 
 (defun make-server (name listen-ip &optional (listen-port 55555))
   (unless (stringp name)
     (error "Name should be a string: ~s" name))
   (let ((server (make-instance 'server :ip listen-ip :port listen-port :name name)))
-    (handler-case (progn (set-threads-to-std-out)
-                         (setf (receive-connections-function server)
-                               (format nil "server-~A-receive " name))
-                         (setf (process-packets-function server)
-                               (format nil "server-~A-packet-process" name))
-                         (bt:make-thread (lambda ()
-                                           (accept-connections server))
-                                         :name name))
+    (handler-case (let ((r-c-f-n (format nil "server-~A-receive" name))
+                        (p-p-f-n (format nil "server-~A-packet-process" name)))
+                    (declare (ignore p-p-f-n)) ;;just temporary
+                    (set-threads-to-std-out)
+                    (setf (receive-connections-function server)
+                          (bt:make-thread (lambda ()
+                                            (accept-connections server))
+                                          :name r-c-f-n)))
+      ;;currently we don't do nuffin with the packets we receive
       (serious-condition (c) (progn (format t "Error of some sort oof2: ~s~%" c)
                                     (unless
                                         (equal (c-socket server)
@@ -28,12 +40,7 @@
                                     server)))
                                         ; (print-object server t)
     server))
-(defun start (name ip port)
-  (make-server name ip port))
-(defun stop (name)
-  "stops a server based on its name"
-  (let ((server (gethash name *current-servers*)))
-    (shutdown server)))
+
 
 (defmethod push-to-queue ((packet packet) args-in-a-list)
   "pushes all the packets received to the queue that is supplied as the first argument in the list args-in-a-list"
@@ -41,9 +48,11 @@
 (defmethod accept-connections ((obj server))
   (loop :do 
     (let ((connection (make-instance 'connection :ip (ip obj) :port (port obj))))
+      (setf (current-listening-socket obj) connection)
       (handler-case (progn (set-server-socket connection)
                            (f-format t "made it~%")
                            (wait-for-connection connection))
+        ;;when we make this, how the frick does it get shut down if the server is going.. it is just going to leave us with 
         (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c)
                                       (shutdown connection)
                                       connection)))
@@ -61,7 +70,7 @@
               ;;   (bt:make-thread (lambda ()
               ;;                     (packet-download-function ))
               
-              (error "Packet received was not an identify-packet")))))))
+              (error "Packet received was not an identify-packet. ~A" (type-of identify-packet))))))))
 
 (defmethod shutdown ((obj connection))
   "shuts down the connection on server"
@@ -74,13 +83,19 @@
   (f-format t "Shutdown complete~%"))
 (defmethod shutdown ((obj server))
   "shuts down all the connections that the server is managing"
-  (let ((table (current-connections obj)))
+  (let ((table (current-connections obj))
+        (accept-connect-func-name (receive-connections-function obj)))
     (maphash (lambda (key val)
                (shutdown val)
-               ;;(find-and-kill-thread ())
+               ;;need to map the ppf hash and kill each thread manually
                (remhash key table))
              table)
     ;;need to stop the function that is accepting new connections
+    ;;it is important that the thread is killed first, so that no modifications are made
+    ;;to the value of current-listening-socket
+    (bt:destroy-thread (receive-connections-functions obj))
+    ;;(bt:destroy-thread (process-packets-function obj))
+    (usocket:socket-close (c-socket (current-listening-socket  obj)))
     (sleep 1)))
 
 (defmethod set-server-socket :before ((object connection))

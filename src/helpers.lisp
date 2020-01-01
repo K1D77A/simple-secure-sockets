@@ -73,3 +73,16 @@
   (setf bt:*default-special-bindings*;;this sets the var of standard out for the threads
         (acons '*standard-output* *standard-output*
                bt:*default-special-bindings*)))
+(defun unique-key-p (hash-table key)
+  "checks if key is a unique entry in hashtable"
+  (if (equal (type-of hash-table) 'hash-table)
+      (not (gethash key hash-table))
+      (error "hash-table is not of type hash-table. ~A" (type-of hash-table))))
+(defun find-and-kill-thread (name)
+  "finds and kills the thread 'name'"
+  (let ((threads (bt:all-threads)))
+    (mapcar (lambda (thread)
+              (when (equal (bt:thread-name thread)
+                           name)
+                (bt:destroy-thread thread)))
+            threads)))

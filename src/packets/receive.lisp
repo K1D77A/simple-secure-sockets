@@ -1,4 +1,4 @@
-
+;;;;this file contains many of the methods required for receiving packets from a connection and ;;;;processing them
 (in-package :simple-secure-sockets)
 
 

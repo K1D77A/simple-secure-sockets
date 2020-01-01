@@ -10,7 +10,7 @@
 
 (defclass client (connection)
   ((packet-processor-functions :accessor ppf :initform (make-hash-table))
-   (processor-name :accessor processor-name :initform :name-of-processor-thread-not-set))
+   (packet-download-function :accessor packet-download-function :initform :name-of-processor-thread-not-set))
   (:documentation "class containing the slots required for the client"))
 
 
@@ -22,7 +22,11 @@
    (receive-connections-function :accessor receive-connections-function :initform :connections-function-not-set)
    (packet-queue :accessor packet-queue :type lparallel.cons-queue:cons-queue
                  :initform (lparallel.queue:make-queue))
-   (process-packets-function :accessor process-packets-function :initform :Process-packets-function-not-set))
+   (process-packets-function :accessor process-packets-function :initform :Process-packets-function-not-set)
+   (current-listening-socket :accessor current-listening-socket :initform
+                             :current-listening-socket-not-set))
+  ;;might at some point need a mutex here, however nothing modified this simultaneously, the
+  ;;thread that modifies is killed before another thread attempts to alter it
   (:documentation "Class that manages the server"))
 
 

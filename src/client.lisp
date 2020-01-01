@@ -20,8 +20,16 @@
 ;;   (let ((client (gethash name *current-clients*)))
 ;;     (shutdown-client client)))
 
-(defun get-client (name)
-  (gethash name *current-clients*))
+(defun start-client (name ip &optional (connect-port 55555))
+  (if (unique-key-p *current-clients* name)
+      (setf (gethash name *current-clients*)
+            (make-client name ip connect-port))
+      (error "name is not a unique name")))
+(defun stop-client (name)
+  (let ((client (gethash name *current-clients*)))
+    (shutdown client)
+    (remhash client *current-clients*)))
+
 
 
 
@@ -35,13 +43,10 @@
                                     (unless (equal (c-socket client) :socket-not-set)
                                       (usocket:socket-close (c-socket client)))
                                     client)))
-    (setf (gethash name *current-clients*) client
-          (connection-name client) name
-          (processor-name client) name)
-    (let ((bt:*default-special-bindings*(acons '*standard-output* *standard-output*
-                                               bt:*default-special-bindings*)))
-      (bt:make-thread (lambda () (packet-download-function client))
-                      :name  (processor-name client)))   
+    (set-threads-to-std-out)
+    (setf (packet-download-function client)
+          (bt:make-thread (lambda () (packet-download-function client))
+                          :name  (format nil "client-~A-download-function" (processor-name client))))
     client))
 
 (defmethod connect :before ((obj client))
@@ -66,31 +71,24 @@
       (f-format t "CLIENT SENDING IDENTIFY~%")
       (send obj (build-identify-packet name))
       (f-format t "CLIENT SENT IDENTIFY~%"))));send identify packet
-      ;; (let* ((packet (download-sequence obj)) ;get back confirmation
-      ;;        (data (data packet)))
-      ;;   (if (string= data "Success")
-      ;;       (f-format t "Connection successful~%")
-      ;;       (progn (f-format t "Connection failed~%")
-      ;;              (shutdown obj)))))))
+;; (let* ((packet (download-sequence obj)) ;get back confirmation
+;;        (data (data packet)))
+;;   (if (string= data "Success")
+;;       (f-format t "Connection successful~%")
+;;       (progn (f-format t "Connection failed~%")
+;;              (shutdown obj)))))))
 
-(defun find-and-kill-thread (name)
-  "finds and kills the thread 'name'"
-  (let ((threads (bt:all-threads)))
-    (mapcar (lambda (thread)
-              (when (equal (bt:thread-name thread)
-                           name)
-                (bt:destroy-thread thread)))
-            threads)))
+
 (defmethod shutdown :before ((obj client))
   (f-format t "Attempting to shutdown client connection to ~s~%" (ip obj)))
 (defmethod shutdown :after ((obj client))
   (f-format t "Shutdown complete~%"))
 (defmethod shutdown ((obj client))
   "shuts down the connection on server"
-  (find-and-kill-thread (processor-name obj))
+  (bt:destroy-thread (packet-download-function obj))
   ;;need to send a kill packet
   (usocket:socket-close (c-socket obj))
-  (remhash (processor-name obj) *current-clients*))
+  (remhash (connection-name obj) *current-clients*))
 
 
 
