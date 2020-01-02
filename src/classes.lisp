@@ -2,8 +2,8 @@
 
 (defclass connection()
   ((connection-name :accessor connection-name :initarg :connection-name :initform :name-not-set)
-   (ip :type string :accessor ip :initarg :ip)
-   (port :type integer :accessor port :initarg :port)
+   (ip  :accessor ip :initarg :ip :initform :ip-not-set)
+   (port  :accessor port :initarg :port :initform :port-not-set)
    (socket :accessor c-socket :initform :socket-not-set)
    (stream :accessor c-stream :initform :stream-not-set)))
 
@@ -58,14 +58,14 @@
              (current-connections object))))
 (defmethod print-object ((object client) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "Name: ~A~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%packet-processor-functions: ~A~%Processor thread name: ~A~%"
+    (format stream "Name: ~A~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%Packet download function: ~A~%"
             (connection-name object)
             (ip object)
             (port object)
             (c-socket object)
             (c-stream object)
-            (ppf object)
-            (processor-name object))))
+                                        ;  (ppf object)
+            (packet-download-function object))))
 (defmethod print-object ((object connection) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~%Name: ~A~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%"

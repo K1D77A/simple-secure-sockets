@@ -95,6 +95,7 @@ correct place in the packet"
       obj
     (loop :for packet := (download-sequence obj) :then (download-sequence obj)
           :do (process-packet obj packet))))
+
 (defmethod packet-process ((obj client) (packet connection) keyword)
   (when (not (keywordp keyword))
     (error "keyword is not a keyword: ~A" (type-of keyword)))

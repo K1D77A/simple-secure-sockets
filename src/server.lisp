@@ -26,13 +26,12 @@
     (handler-case (let ((r-c-f-n (format nil "server-~A-receive" name))
                         (p-p-f-n (format nil "server-~A-packet-process" name)))
                     (declare (ignore p-p-f-n)) ;;just temporary
-                    (set-threads-to-std-out)
                     (setf (receive-connections-function server)
-                          (bt:make-thread (lambda ()
-                                            (accept-connections server))
-                                          :name r-c-f-n)))
+                          (make-thread (lambda ()
+                                         (accept-connections server))
+                                       :name r-c-f-n)))
       ;;currently we don't do nuffin with the packets we receive
-      (serious-condition (c) (progn (format t "Error of some sort oof2: ~s~%" c)
+      (serious-condition (c) (progn (format t "Server error: ~s~%" c)
                                     (unless
                                         (equal (c-socket server)
                                                :server-socket-not-set)
@@ -53,24 +52,28 @@
                            (f-format t "made it~%")
                            (wait-for-connection connection))
         ;;when we make this, how the frick does it get shut down if the server is going.. it is just going to leave us with 
-        (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c)
+        (serious-condition (c) (progn (format t "accept-connections error: ~s~%" c)
                                       (shutdown connection)
                                       connection)))
       ;;we need to accept one identity packet first, set the name of the client and then use that
       ;;key in the current-connections hash-table
       (f-format t "------WAITING ON IDENTIFY-------~%")
-      (let ((identify-packet (download-sequence connection)))
+      (let ((identify-packet (download-sequence connection)))        
         (f-format t "-----A PACKET HAS BEEN RECEIVED-------~%")
         (if (equal (type-of identify-packet) 'identify-packet)
             (let ((id (id identify-packet)))
               (setf (connection-name connection) id)
-              (setf (gethash id (current-connections obj)) connection)
+              ;;connection doesn't have ppf slot...
+              ;;(push-to-queue packet (packet-queue obj))
+              (setf (gethash id (current-connections obj))
+                    (cons connection 
+                          (bt:make-thread (lambda ()
+                                            (loop :do (push-to-queue (download-sequence connection)
+                                                                     (list (packet-queue obj)))))
+                                          :name (format nil "packet-download-~A" id)))))
  ;;;can't dispatch on connections currently... connection dont have packet-processor-functions or  ;;;processor names    
-              ;;   (dispatch-on-op connection :ALL #'push-to-queue (list (packet-queue obj)))
-              ;;   (bt:make-thread (lambda ()
-              ;;                     (packet-download-function ))
-              
-              (error "Packet received was not an identify-packet. ~A" (type-of identify-packet))))))))
+            
+            (error "Packet received was not an identify-packet. ~A" (type-of identify-packet)))))))
 
 (defmethod shutdown ((obj connection))
   "shuts down the connection on server"
@@ -83,20 +86,23 @@
   (f-format t "Shutdown complete~%"))
 (defmethod shutdown ((obj server))
   "shuts down all the connections that the server is managing"
-  (let ((table (current-connections obj))
-        (accept-connect-func-name (receive-connections-function obj)))
+  (let ((table (current-connections obj)))
     (maphash (lambda (key val)
-               (shutdown val)
-               ;;need to map the ppf hash and kill each thread manually
-               (remhash key table))
-             table)
-    ;;need to stop the function that is accepting new connections
-    ;;it is important that the thread is killed first, so that no modifications are made
-    ;;to the value of current-listening-socket
-    (bt:destroy-thread (receive-connections-functions obj))
-    ;;(bt:destroy-thread (process-packets-function obj))
-    (usocket:socket-close (c-socket (current-listening-socket  obj)))
-    (sleep 1)))
+               (let ((con (car val))
+                     (thread (cdr val)))
+                 (shutdown con)
+                 (stop-thread thread)
+                 ;;need to map the ppf hash and kill each thread manually
+                 (remhash key table)))
+             table))
+  ;;need to stop the function that is accepting new connections
+  ;;it is important that the thread is killed first, so that no modifications are made
+  ;;to the value of current-listening-socket
+  (stop-thread (receive-connections-function obj))
+  ;;(bt:destroy-thread (process-packets-function obj))
+  (usocket:socket-close (c-socket (current-listening-socket  obj)))
+  (remhash (name obj) *current-servers*)
+  (sleep 1))
 
 (defmethod set-server-socket :before ((object connection))
   (f-format t "Creating socket~%"))

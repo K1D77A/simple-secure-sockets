@@ -38,15 +38,14 @@
     (error "Name should be a keyword: ~s" name))
   (let ((client (make-instance 'client :ip ip :port port :connection-name name)))
     (handler-case (connect client)
-      (serious-condition (c) (progn (format t "Error of some sort oof: ~s~%" c )
+      (serious-condition (c) (progn (format t "Client error: ~s~%" c )
                                     (print (c-socket client))
                                     (unless (equal (c-socket client) :socket-not-set)
                                       (usocket:socket-close (c-socket client)))
                                     client)))
-    (set-threads-to-std-out)
     (setf (packet-download-function client)
-          (bt:make-thread (lambda () (packet-download-function client))
-                          :name  (format nil "client-~A-download-function" (processor-name client))))
+          (make-thread (lambda () (packet-download-function client))
+                       :name (format nil "client-~A-download-function" name)))
     client))
 
 (defmethod connect :before ((obj client))
@@ -61,7 +60,7 @@
                    (stream c-stream)
                    (name connection-name))
       obj
-    (print-object obj t)
+                                        ; (print-object obj t)
     (let ((connect (usocket:socket-connect ip port
                                            :protocol :stream
                                            :element-type '(unsigned-byte 8))))
@@ -85,7 +84,7 @@
   (f-format t "Shutdown complete~%"))
 (defmethod shutdown ((obj client))
   "shuts down the connection on server"
-  (bt:destroy-thread (packet-download-function obj))
+  (stop-thread (packet-download-function obj))
   ;;need to send a kill packet
   (usocket:socket-close (c-socket obj))
   (remhash (connection-name obj) *current-clients*))
