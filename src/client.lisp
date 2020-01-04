@@ -35,17 +35,23 @@
 
 (defun make-client (name ip port)
   (unless (stringp name)
-    (error "Name should be a keyword: ~s" name))
-  (let ((client (make-instance 'client :ip ip :port port :connection-name name)))
-    (handler-case (connect client)
+    (error "Name should be a string: ~s" name))
+  (let ((client (make-instance 'client :ip ip :port port :connection-name name))
+        (connected? nil))
+    (handler-case (progn (setf connected? (connect client))
+                         (when (equal connected? :NOT-CONNECTED)
+                           (shutdown client)))
       (serious-condition (c) (progn (format t "Client error: ~s~%" c )
                                     (print (c-socket client))
                                     (unless (equal (c-socket client) :socket-not-set)
                                       (usocket:socket-close (c-socket client)))
                                     client)))
-    (setf (packet-download-function client)
-          (make-thread (lambda () (packet-download-function client))
-                       :name (format nil "client-~A-download-function" name)))
+    (when (equal connected? :CONNECTED)
+      (f-format t "connected properly~%")
+      (setf (packet-download-thread client)
+            (make-thread (lambda () (packet-download-function client))
+                         :name (format nil "[CLIENT]:~A-packet-download" name))))
+    (f-format t "returning client~%")
     client))
 
 (defmethod connect :before ((obj client))
@@ -60,22 +66,20 @@
                    (stream c-stream)
                    (name connection-name))
       obj
-                                        ; (print-object obj t)
     (let ((connect (usocket:socket-connect ip port
                                            :protocol :stream
                                            :element-type '(unsigned-byte 8))))
       (setf socket connect)
       (setf stream (usocket:socket-stream connect))
-      (sleep 1)
-      (f-format t "CLIENT SENDING IDENTIFY~%")
+                                        ;  (sleep 1)
       (send obj (build-identify-packet name))
-      (f-format t "CLIENT SENT IDENTIFY~%"))));send identify packet
-;; (let* ((packet (download-sequence obj)) ;get back confirmation
-;;        (data (data packet)))
-;;   (if (string= data "Success")
-;;       (f-format t "Connection successful~%")
-;;       (progn (f-format t "Connection failed~%")
-;;              (shutdown obj)))))))
+      (sleep 0.1)
+      (let ((packet (download-sequence obj)))
+        (f-format t "------ack maybe received ~A~%------- "
+                  (type-of packet))
+        (if (equal (type-of packet) 'ack-packet)
+            :CONNECTED
+            :NOT-CONNECTED)))))
 
 
 (defmethod shutdown :before ((obj client))
@@ -84,10 +88,10 @@
   (f-format t "Shutdown complete~%"))
 (defmethod shutdown ((obj client))
   "shuts down the connection on server"
-  (stop-thread (packet-download-function obj))
-  ;;need to send a kill packet
-  (usocket:socket-close (c-socket obj))
-  (remhash (connection-name obj) *current-clients*))
+  (ignore-errors (stop-thread (packet-download-thread obj))
+                 ;;need to send a kill packet
+                 (usocket:socket-close (c-socket obj));;this throws and end of file for some reason.
+                 (remhash (connection-name obj) *current-clients*)))
 
 
 

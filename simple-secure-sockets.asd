@@ -14,7 +14,8 @@
                  (:file "packets/receive")
                  (:file "packets/send")
                  (:file "client")
-                 (:file "server"))
+                 (:file "server")
+                 (:file "tests"))
   :depends-on   (#:usocket
                  #:lparallel
                  #:ironclad))

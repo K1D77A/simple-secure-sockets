@@ -6,17 +6,18 @@
   "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
   (let ((data (make-array n :element-type '(unsigned-byte 8))))
     (dotimes (i n data)
-      (setf (aref data i) (read-byte stream)))))
+      (setf (aref data i) (read-byte stream t)))))
 
 (defmethod download-sequence ((obj connection))
-  "Method that handles downloading a complete sequence"
-  (let ((packet (make-instance 'packet)))
-    (read-header obj packet)
-    (read-recipient obj packet)
-    (read-op obj packet)
-    (handle-op obj packet)
-    (read-footer obj packet)
-    packet))
+  "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
+  (handler-case (let ((packet (make-instance 'packet)))
+                  (read-header obj packet)
+                  (read-recipient obj packet)
+                  (read-op obj packet)
+                  (handle-op obj packet)
+                  (read-footer obj packet)
+                  packet)
+    (end-of-file () :EOF))); if the stream is broken return :EOF
 
 (defmethod read-header :before ((obj connection) (packet packet))
   (f-format t "New packet start~s~%-Reading header~%"(get-universal-time)))
@@ -29,7 +30,7 @@
 (defmethod read-recipient :before ((obj connection) (packet packet))
   (f-format t "-Reading recipient~%"(get-universal-time)))
 (defmethod read-recipient :after ((obj connection) (packet packet))
-  (f-format t "-Recipient read~%"))
+  (f-format t "-Recipient read. Recipient: ~A~%" (recipient packet)))
 (defmethod read-recipient ((obj connection) (packet packet))
   (setf (recipient packet)
         (convert-to-string (read-n-bytes
@@ -38,27 +39,32 @@
 (defmethod read-op :before ((obj connection)(packet packet))
   (f-format t "--Reading op~%"))
 (defmethod read-op :after ((obj connection)(packet packet))
-  (f-format t "--OP read~%"))
+  (f-format t "--OP read. OP: ~A~%" (op packet)))
 (defmethod read-op ((obj connection)(packet packet))
   (let* ((op (read-byte (c-stream obj)))
          (op-as-string (convert-to-string (code-char op))))
     (setf (op packet) op-as-string)
-                                        ;(print-object packet t)
+    ;;(print-object packet t)
     (cond ((string=  %op-data op-as-string)
            (change-class packet 'data-packet))
+          ((string= %op-ack op-as-string)
+           (change-class packet 'ack-packet))
           ((string=  %op-kill op-as-string)
            (change-class packet 'kill-packet))
           ((string= %op-identify op-as-string)
            (change-class packet 'identify-packet))
-          (t (error "Packet taken in is not a valid packet ~A" packet)))))
+          (t (f-format t "Packet taken in is not a valid packet ~A" packet)))))
+;;when packet is wrong it needs to be dropped, this needs to be written
 
 
 (defmethod handle-op :before ((obj connection)(packet packet))
   (f-format t "--Handling OP~%"))
 (defmethod handle-op :after ((obj connection)(packet packet))
-  (f-format t "--OP Handled~%"))
+  (f-format t "--OP Handled. Type of packet: ~A~%" (type-of packet)))
 (defmethod handle-op ((obj connection)(packet kill-packet))
   :SHUTDOWN)
+(defmethod handle-op ((obj connection)(packet ack-packet))
+  :ACKNOWLEDGE)
 (defmethod handle-op :after ((obj connection)(packet data-packet))
   (f-format t "---Data: ~s~%" (data packet)))
 (defmethod handle-op ((obj connection)(packet data-packet))
@@ -73,9 +79,6 @@ correct place in the packet"
 (defmethod handle-op ((obj connection) (packet identify-packet))
   (setf (id packet)
         (convert-to-string (read-n-bytes %connection-name-len (c-stream obj)))))
-
-
-
 (defmethod read-footer :before ((obj connection)(packet packet))
   (f-format t "-reading footer~%"))
 (defmethod read-footer :after ((obj connection)(packet packet))
@@ -90,13 +93,15 @@ correct place in the packet"
 
 
 (defmethod packet-download-function ((obj client))
-  "Keeps calling the function download-sequence until the thread is manually killed"
-  (with-accessors ((functions packet-processors-functions))
-      obj
-    (loop :for packet := (download-sequence obj) :then (download-sequence obj)
-          :do (process-packet obj packet))))
-
-(defmethod packet-process ((obj client) (packet connection) keyword)
+  "Keeps calling the function download-sequence until the thread is manually killed. If the thread receives an :EOF from download-sequence it will simply return :DONE"
+  (loop :for packet := (download-sequence obj) :then (download-sequence obj)
+        :if (equal packet :EOF)
+          :do  (return :DONE)
+        :else
+          :do (push-to-queue packet (list (packet-queue obj)))))
+;;okay so this isn't working properly, I think a better idea is to create a queue for the client
+;;and then push all packets to the queue then after its easier to just process them
+(defmethod packet-process ((obj client) (packet packet) keyword)
   (when (not (keywordp keyword))
     (error "keyword is not a keyword: ~A" (type-of keyword)))
   (with-accessors ((functions-hash ppf))
@@ -107,6 +112,7 @@ correct place in the packet"
                       (args-list (rest function-n-args)))
                   (funcall function packet args-list)))
               function-n-args))))
+;;oof the above doesn't exist ^
 (defmethod process-packet ((obj connection)(packet data-packet))
   "Processes the data-packets for connection. It calls all the functions that are contained within a list under the key :DATA in the slot 'packet-processor-functions' with the argument packet. If you destructively modify packet then any functions after will be passed the modified version of packet"
   (packet-process obj packet :DATA))

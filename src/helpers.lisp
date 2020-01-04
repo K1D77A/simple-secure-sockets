@@ -93,3 +93,15 @@
   (if (bt:thread-alive-p thread)
       (bt:destroy-thread thread)
       t))
+(defun remove-trailing-x (sequence x)
+  "Removes trailing x from sequence"
+  (let ((first-x (position-if-not (lambda (item)
+                                    (equal item x))
+                                  sequence
+                                  :from-end t)))
+    (subseq sequence 0 (1+ first-x))))
+                                  
+(defun remove-trailing-spaces (sequence)
+  (remove-trailing-x sequence #\Space))
+(defun remove-trailing-nulls (sequence)
+  (remove-trailing-x sequence #\Nul))

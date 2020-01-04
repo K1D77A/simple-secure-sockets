@@ -23,8 +23,8 @@
   (unless (stringp name)
     (error "Name should be a string: ~s" name))
   (let ((server (make-instance 'server :ip listen-ip :port listen-port :name name)))
-    (handler-case (let ((r-c-f-n (format nil "server-~A-receive" name))
-                        (p-p-f-n (format nil "server-~A-packet-process" name)))
+    (handler-case (let ((r-c-f-n (format nil "[SERVER]:~A-receive" name))
+                        (p-p-f-n (format nil "[SERVER]:~A-packet-process" name)))
                     (declare (ignore p-p-f-n)) ;;just temporary
                     (setf (receive-connections-function server)
                           (make-thread (lambda ()
@@ -44,6 +44,13 @@
 (defmethod push-to-queue ((packet packet) args-in-a-list)
   "pushes all the packets received to the queue that is supplied as the first argument in the list args-in-a-list"
   (lparallel.queue:push-queue packet (first args-in-a-list)))
+(defmethod download-push-to-queue ((obj server)(connection connection))
+  "Downloads packets from connection and then pushes them onto the servers queue. If the download-sequence returns :EOF then the thread will nicely return :DONE"
+  (loop :for packet := (download-sequence connection) :then (download-sequence connection)
+        :if (equal packet :EOF)
+          :do  (return :DONE)
+        :else
+          :do (push-to-queue packet (list (packet-queue obj)))))
 (defmethod accept-connections ((obj server))
   (loop :do 
     (let ((connection (make-instance 'connection :ip (ip obj) :port (port obj))))
@@ -61,19 +68,23 @@
       (let ((identify-packet (download-sequence connection)))        
         (f-format t "-----A PACKET HAS BEEN RECEIVED-------~%")
         (if (equal (type-of identify-packet) 'identify-packet)
-            (let ((id (id identify-packet)))
+            (let ((id (remove-trailing-nulls (id identify-packet))))
               (setf (connection-name connection) id)
               ;;connection doesn't have ppf slot...
               ;;(push-to-queue packet (packet-queue obj))
               (setf (gethash id (current-connections obj))
-                    (cons connection 
+                    (cons connection ;;really important to remember that there is a cons here 
                           (bt:make-thread (lambda ()
-                                            (loop :do (push-to-queue (download-sequence connection)
-                                                                     (list (packet-queue obj)))))
-                                          :name (format nil "packet-download-~A" id)))))
+                                            (download-push-to-queue obj connection))
+                                          :name (format nil "[SERVER]:~A-packet-download" id))))
+                                        ; (f-format t "SENDING ACK TO CLIENT~%")
+              (send connection (build-ack-packet)))
  ;;;can't dispatch on connections currently... connection dont have packet-processor-functions or  ;;;processor names    
             
-            (error "Packet received was not an identify-packet. ~A" (type-of identify-packet)))))))
+            (let ((type (type-of identify-packet)))
+              (f-format t "packet was not of type identify-packet: ~A~%" type)
+              (f-format t "breaking connection~%")
+              (shutdown connection)))))))
 
 (defmethod shutdown ((obj connection))
   "shuts down the connection on server"
@@ -90,6 +101,7 @@
     (maphash (lambda (key val)
                (let ((con (car val))
                      (thread (cdr val)))
+                 (send con (build-kill-packet))
                  (shutdown con)
                  (stop-thread thread)
                  ;;need to map the ppf hash and kill each thread manually
@@ -100,7 +112,7 @@
   ;;to the value of current-listening-socket
   (stop-thread (receive-connections-function obj))
   ;;(bt:destroy-thread (process-packets-function obj))
-  (usocket:socket-close (c-socket (current-listening-socket  obj)))
+  (usocket:socket-close (c-socket (current-listening-socket obj)))
   (remhash (name obj) *current-servers*)
   (sleep 1))
 
@@ -128,6 +140,15 @@
                   (setf (c-stream obj) (usocket:socket-stream wait)))
     (serious-condition (c) (progn (format t "Fatal issues waiting for connection: ~A" c)
                                   (shutdown obj)))))
+(defmethod get-current-connections-cons ((obj server) client-name)
+  (let ((connections (current-connections obj)))
+    (gethash client-name connections)))
+(defmethod get-current-connections-object ((obj server) client-name)
+  "returns the connection object associated with client-name"
+  (car (get-current-connections-cons obj client-name)))
+(defmethod get-current-connections-thread ((obj server) client-name)
+  (cdr (get-current-connectinos-cons obj client-name)))
+
 
 
 ;;;very simple protocol to send data across the network

@@ -13,10 +13,12 @@
 (defvar-hash %op-data "d")
 (defvar-hash %op-kill "k")
 (defvar-hash %op-identify "i")
+(defvar-hash %op-ack "a")
 (defvar-hash %stop-footer "stop")
 (defvar-hash %connection-name-len 16);bytes
 (defvar-hash %kill-recipient "iwanttodieplease")
 (defvar-hash %identify-recipient "letmeidentifyplz")
+(defvar-hash %ack-recipient "acknowledgemeplz")
 (defvar-hash %max-data-size 255);1byte len
 
 

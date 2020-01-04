@@ -16,6 +16,9 @@
 (defun build-kill-packet ()
   (let ((packet (build-packet %kill-recipient %op-kill)))
     (change-class packet 'kill-packet)))
+(defun build-ack-packet ()
+  (let ((packet (build-packet %ack-recipient %op-ack)))
+    (change-class packet 'ack-packet)))
 
 (defun build-identify-packet (id)
   (let ((id-vecced (vectorize-data id %connection-name-len)))
@@ -39,6 +42,11 @@
 (defun force-write-sequence (seq stream)
   (write-sequence seq stream)
   (force-output stream))
+;; (defmethod send :after (connection packet)
+;;   (f-format t "~A sent type of packet ~A to ~A"
+;;             (connection-name connection)
+;;             (type-of packet)
+;;             (recipient packet)))
 (defmethod send (connection (packet data-packet))
   (with-accessors ((recipient recipient)
                    (data data)
@@ -51,6 +59,7 @@
      (concatenate '(vector (unsigned-byte 8))
                   header recipient op len data footer)
      (c-stream connection))))
+
 (defmethod send (connection (packet kill-packet))
   (with-accessors ((recipient recipient)
                    (header header)
@@ -61,6 +70,7 @@
      (concatenate '(vector (unsigned-byte 8))
                   header recipient op footer)
      (c-stream connection))))
+
 (defmethod send (connection (packet identify-packet))
   (with-accessors ((recipient recipient)
                    (header header)
@@ -71,4 +81,15 @@
     (force-write-sequence 
      (concatenate '(vector (unsigned-byte 8))
                   header recipient op id footer)
+     (c-stream connection))))
+
+(defmethod send (connection (packet ack-packet))
+  (with-accessors ((recipient recipient)
+                   (header header)
+                   (footer footer)
+                   (op op))
+      packet
+    (force-write-sequence 
+     (concatenate '(vector (unsigned-byte 8))
+                  header recipient op footer)
      (c-stream connection))))

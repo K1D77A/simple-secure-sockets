@@ -10,15 +10,17 @@
 
 (defclass client (connection)
   ((packet-processor-functions :accessor ppf :initform (make-hash-table))
-   (packet-download-function :accessor packet-download-function :initform :name-of-processor-thread-not-set))
+   (packet-queue :accessor packet-queue :type lparallel.cons-queue:cons-queue
+                 :initform (lparallel.queue:make-queue))
+   (packet-download-thread :accessor packet-download-thread :initform :download-thread-not-set))
   (:documentation "class containing the slots required for the client"))
 
 
 (defclass server ()
-  ((name :accessor name :initarg :name)
-   (ip :type string :accessor ip :initarg :ip)
-   (port :type integer :accessor port :initarg :port)
-   (current-connections :accessor current-connections :initform (make-hash-table))
+  ((name :accessor name :initarg :name :initform :name-not-set)
+   (ip :type string :accessor ip :initarg :ip :initform :ip-not-set)
+   (port :type integer :accessor port :initarg :port :initform :ip-not-set)
+   (current-connections :accessor current-connections :initform (make-hash-table :test #'equal))
    (receive-connections-function :accessor receive-connections-function :initform :connections-function-not-set)
    (packet-queue :accessor packet-queue :type lparallel.cons-queue:cons-queue
                  :initform (lparallel.queue:make-queue))
@@ -41,6 +43,9 @@
    (data :accessor data :initform :data-not-set)))
 (defclass identify-packet (packet)
   ((id :accessor id :initform :id-not-set)))
+(defclass ack-packet (packet)
+  ()
+  (:documentation "Ack packet"))
 (defclass kill-packet (packet)
   ()
   (:documentation "Kill packet doesn't have any special information in it so it just inherits from packet. The reason for its existence is so that methods can dispatch on the class"))
@@ -65,7 +70,7 @@
             (c-socket object)
             (c-stream object)
                                         ;  (ppf object)
-            (packet-download-function object))))
+            (packet-download-thread object))))
 (defmethod print-object ((object connection) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~%Name: ~A~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%"
