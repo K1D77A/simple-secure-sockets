@@ -1,32 +1,71 @@
 (in-package :simple-secure-sockets)
 
 (defclass connection()
-  ((connection-name :accessor connection-name :initarg :connection-name :initform :name-not-set)
-   (ip  :accessor ip :initarg :ip :initform :ip-not-set)
-   (port  :accessor port :initarg :port :initform :port-not-set)
-   (socket :accessor c-socket :initform :socket-not-set)
-   (stream :accessor c-stream :initform :stream-not-set)))
+  ((connection-name
+    :accessor connection-name
+    :initarg :connection-name
+    :initform :name-not-set)
+   (ip
+    :accessor ip
+    :initarg :ip
+    :initform :ip-not-set)
+   (port
+    :accessor port
+    :initarg :port
+    :initform :port-not-set)
+   (socket
+    :accessor c-socket
+    :initform :socket-not-set)
+   (stream
+    :accessor c-stream
+    :initform :stream-not-set)))
 
 
 (defclass client (connection)
-  ((packet-processor-functions :accessor ppf :initform (make-hash-table))
-   (packet-queue :accessor packet-queue :type lparallel.cons-queue:cons-queue
-                 :initform (lparallel.queue:make-queue))
-   (packet-download-thread :accessor packet-download-thread :initform :download-thread-not-set))
+  ((packet-processor-functions
+    :accessor ppf
+    :initform (make-hash-table))
+   (packet-queue
+    :accessor packet-queue
+    :type lparallel.cons-queue:cons-queue
+    :initform (lparallel.queue:make-queue))
+   (packet-download-thread
+    :accessor packet-download-thread
+    :initform :download-thread-not-set))
   (:documentation "class containing the slots required for the client"))
 
 
 (defclass server ()
-  ((name :accessor name :initarg :name :initform :name-not-set)
-   (ip :type string :accessor ip :initarg :ip :initform :ip-not-set)
-   (port :type integer :accessor port :initarg :port :initform :ip-not-set)
-   (current-connections :accessor current-connections :initform (make-hash-table :test #'equal))
-   (receive-connections-function :accessor receive-connections-function :initform :connections-function-not-set)
-   (packet-queue :accessor packet-queue :type lparallel.cons-queue:cons-queue
-                 :initform (lparallel.queue:make-queue))
-   (process-packets-function :accessor process-packets-function :initform :Process-packets-function-not-set)
-   (current-listening-socket :accessor current-listening-socket :initform
-                             :current-listening-socket-not-set))
+  ((name
+    :accessor name
+    :initarg :name
+    :initform :name-not-set)
+   (ip
+    :type string
+    :accessor ip
+    :initarg :ip
+    :initform :ip-not-set)
+   (port
+    :type integer
+    :accessor port
+    :initarg :port
+    :initform :ip-not-set)
+   (current-connections
+    :accessor current-connections
+    :initform (make-hash-table :test #'equal))
+   (receive-connections-function
+    :accessor receive-connections-function
+    :initform :connections-function-not-set)
+   (packet-queue
+    :accessor packet-queue
+    :type lparallel.cons-queue:cons-queue
+    :initform (lparallel.queue:make-queue))
+   (process-packets-function
+    :accessor process-packets-function
+    :initform :Process-packets-function-not-set)
+   (current-listening-socket
+    :accessor current-listening-socket
+    :initform :current-listening-socket-not-set))
   ;;might at some point need a mutex here, however nothing modified this simultaneously, the
   ;;thread that modifies is killed before another thread attempts to alter it
   (:documentation "Class that manages the server"))
@@ -34,15 +73,33 @@
 
 
 (defclass packet ()
-  ((recipient :accessor recipient :initarg :recipient :initform :recipient-not-set)
-   (header :accessor header :initarg :header :initform :header-not-set)
-   (footer :accessor footer :initarg :footer :initform :footer-not-set)
-   (op :accessor op :initarg :op :initform :op-not-set)))
+  ((recipient
+    :accessor recipient
+    :initarg :recipient
+    :initform :recipient-not-set)
+   (header
+    :accessor header
+    :initarg :header
+    :initform :header-not-set)
+   (footer
+    :accessor footer
+    :initarg :footer
+    :initform :footer-not-set)
+   (op
+    :accessor op
+    :initarg :op
+    :initform :op-not-set)))
 (defclass data-packet (packet)
-  ((data-length :accessor d-len :initform :data-length-not-set)
-   (data :accessor data :initform :data-not-set)))
+  ((data-length
+    :accessor d-len
+    :initform :data-length-not-set)
+   (data
+    :accessor data
+    :initform :data-not-set)))
 (defclass identify-packet (packet)
-  ((id :accessor id :initform :id-not-set)))
+  ((id
+    :accessor id
+    :initform :id-not-set)))
 (defclass ack-packet (packet)
   ()
   (:documentation "Ack packet"))
