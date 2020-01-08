@@ -39,26 +39,24 @@
   (let ((client (make-instance 'client :ip ip :port port :connection-name name))
         (connected? nil))
     (handler-case (progn (setf connected? (connect client))
+                         (f-format :info :client-connect "REEEclient: ~A" connected?)
                          (when (equal connected? :NOT-CONNECTED)
                            (shutdown client)))
-      (serious-condition (c) (progn (format t "Client error: ~s~%" c )
-                                    (print (c-socket client))
-                                    (unless (equal (c-socket client) :socket-not-set)
-                                      (usocket:socket-close (c-socket client)))
+      (serious-condition (c) (progn (f-format :error :client-start "Client error: ~s" c)
+                                    (safe-socket-close (c-socket client))
                                     client)))
     (when (equal connected? :CONNECTED)
-      (f-format t "connected properly~%")
+      (f-format :info :client-start  "connected properly")
       (setf (packet-download-thread client)
             (make-thread (lambda () (packet-download-function client))
                          :name (format nil "[CLIENT]:~A-packet-download" name))))
-    (f-format t "returning client~%")
+    (f-format :debug :client-start "returning client")
     client))
 
 (defmethod connect :before ((obj client))
-  (f-format t "Attempting to connect to host: ~s ~%" (ip obj)))
+  (f-format :info :client-connect  "Attempting to connect to host: ~s" (ip obj)))
 (defmethod connect :after ((obj client))  
-  (f-format t "Connection successful~%"))
-
+  (f-format :info :client-connect  "Connection successful"))
 (defmethod connect ((obj client))
   (with-accessors ((ip ip)
                    (port port)
@@ -71,26 +69,29 @@
                                            :element-type '(unsigned-byte 8))))
       (setf socket connect)
       (setf stream (usocket:socket-stream connect))
-                                        ;  (sleep 1)
+                                        ; (sleep 10)
       (send obj (build-identify-packet name))
-      (sleep 0.1)
+                                        ;  (sleep 0.1)
+                                        ;   (if-timed 500 0.001 (listen stream) ;;something wrong here
+      ;;check if stream contains anything 500 times in 1/2 second. This means that if no
+      ;;packet is sent in 0.5 seconds this will eval to :NOT-CONNECTED 
       (let ((packet (download-sequence obj)))
-        (f-format t "------ack maybe received ~A~%------- "
+        (f-format :debug :client-receive "------ack maybe received ~A-------"
                   (type-of packet))
         (if (equal (type-of packet) 'ack-packet)
             :CONNECTED
             :NOT-CONNECTED)))))
-
+;      :NOT-CONNECTED))))
 
 (defmethod shutdown :before ((obj client))
-  (f-format t "Attempting to shutdown client connection to ~s~%" (ip obj)))
+  (f-format :info :client-stop  "Attempting to shutdown client connection to ~s" (ip obj)))
 (defmethod shutdown :after ((obj client))
-  (f-format t "Shutdown complete~%"))
+  (f-format :info :client-stop  "Shutdown complete"))
 (defmethod shutdown ((obj client))
   "shuts down the connection on server"
   (ignore-errors (stop-thread (packet-download-thread obj))
                  ;;need to send a kill packet
-                 (usocket:socket-close (c-socket obj));;this throws and end of file for some reason.
+                 (safe-socket-close (c-socket obj));;this throws and end of file for some reason.
                  (remhash (connection-name obj) *current-clients*)))
 
 

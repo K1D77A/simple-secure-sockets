@@ -1,18 +1,44 @@
 (in-package :simple-secure-sockets)
+;;;;this file contains functions which are simply simply helpers for the rest of the program
+(defparameter *op-keywords* (list :ALL :IDENTIFY :DATA :KILL :ACK))
 
-(defvar %start-header "start")
-(defvar %op-data "d")
-(defvar %op-kill "k")
-(defvar %stop-footer "stop")
-(defparameter *op-keywords* (list :ALL :IDENTIFY :DATA :KILL))
+(defparameter *debug-level* :all)
+(defparameter *debug-levels* '(:none :all :error :warn :info :debug))
+(defparameter *valid-format-prefixes*
+  (list :testing
+        :packet-read :packet-write
+        :server-start :server-stop
+        :client-start :client-stop
+        :client-receive
+        :client-connect :client-disconnect
+        :server-receive :server-disconnect
+        :packet-process))
+;;use :all to always print regardless of level
+(defun valid-prefix-p (prefix)
+  (member prefix *valid-format-prefixes* :test #'equal))
+(defun set-log-level (level)
+  (if (member level *debug-levels*)
+      (setf *debug-level* level)
+      (error 'type-error :datum level :expected-type *debug-levels*)))
+(defun conc-level-prefix-and-control-string (level prefix control-string)
+  (concatenate 'string (format nil "[~s][~s]" level prefix) control-string "~%"))
+(defun f-format (level prefix  control-string &rest format-arguments)
+  (unless (valid-prefix-p prefix)
+    (error "Invalid prefix: ~S" prefix))
+  (if (not (equal *debug-level* :none))
+      (when (or (equal level :all)
+                (<= (position level *debug-levels*)
+                    (position *debug-level* *debug-levels*))
+                (apply (function forced-format) *trace-output*
+                       (conc-level-prefix-and-control-string level prefix control-string)
+                       format-arguments)))))
 
-(defparameter *DEBUG-OUTPUT* t)
-
-(defun f-format (destination control-string &rest format-arguments)
+(defun forced-format (destination control-string &rest format-arguments)
   "just a normal format function that forces output"
-  (when *DEBUG-OUTPUT*
-    (format destination control-string format-arguments)
-    (force-output destination)))
+  (format destination control-string format-arguments)
+  (force-output destination))
+
+
 
 (defun list-to-string (lst)
   "converts a list to a string"
@@ -93,6 +119,7 @@
   (if (bt:thread-alive-p thread)
       (bt:destroy-thread thread)
       t))
+
 (defun remove-trailing-x (sequence x)
   "Removes trailing x from sequence"
   (let ((first-x (position-if-not (lambda (item)
@@ -100,8 +127,36 @@
                                   sequence
                                   :from-end t)))
     (subseq sequence 0 (1+ first-x))))
-                                  
+
 (defun remove-trailing-spaces (sequence)
   (remove-trailing-x sequence #\Space))
 (defun remove-trailing-nulls (sequence)
   (remove-trailing-x sequence #\Nul))
+(defmacro eval-body-n-times-by-interval-until-t (number-of-intervals interval-time &body body)
+  "Evals body n times by an interval of seconds until either body evaluates to non nil, in which case the value is returned. If n is reached with no evaluation to non nil then nil is returned, indicating failure"
+  (let ((val (gensym)))
+    `(loop :for x :from 1 :upto ,number-of-intervals    
+           :do (let ((,val ,@body))
+                 (if ,val
+                     (return ,val)
+                     (sleep ,interval-time))))))
+(defmacro if-timed (number-of-intervals interval-time test then &optional else)
+  "this is a normal if, however it will check if test is true for the count of number-of-intervals with a spacing of intervals-time"
+  `(if (eval-body-n-times-by-interval-until-t ,number-of-intervals ,interval-time
+         (if ,test
+             ,then
+             nil))
+       ,then
+       ,else))
+(defmacro when-timed (number-of-intervals interval-time test &body body)
+  "Executed the body after checking if test is true number-of-intervals times with an interval of interval-time. body is an implicit progn like in a normal when form"
+  `(if-timed ,number-of-intervals ,interval-time ,test (progn ,@body) nil))
+
+(defmethod safe-socket-close ((socket usocket:usocket))
+  (usocket:socket-close socket)
+  t)
+(defmethod safe-socket-close (socket)
+  :SOCKET-WAS-NOT-A-SOCKET)
+(defvar *!equivs* (make-hash-table))
+(defun ! (func)
+  

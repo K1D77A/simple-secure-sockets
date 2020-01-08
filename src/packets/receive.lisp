@@ -10,6 +10,7 @@
 
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
+  (declare (optimize (speed 3) (safety 0)))
   (handler-case (let ((packet (make-instance 'packet)))
                   (read-header obj packet)
                   (read-recipient obj packet)
@@ -20,26 +21,27 @@
     (end-of-file () :EOF))); if the stream is broken return :EOF
 
 (defmethod read-header :before ((obj connection) (packet packet))
-  (f-format t "New packet start~s~%-Reading header~%"(get-universal-time)))
+  (f-format :debug :packet-read  "New packet start~s" (get-universal-time))
+  (f-format :debug :packet-read  "-Reading header"))
 (defmethod read-header :after ((obj connection) (packet packet))
-  (f-format t "-Header read~%"))
+  (f-format :debug :packet-read  "-Header read"))
 (defmethod read-header ((obj connection) (packet packet))
   (setf (header packet)
         (convert-to-string (read-n-bytes
                             (length %start-header) (c-stream obj)))))
 (defmethod read-recipient :before ((obj connection) (packet packet))
-  (f-format t "-Reading recipient~%"(get-universal-time)))
+  (f-format :debug :packet-read  "-Reading recipient"(get-universal-time)))
 (defmethod read-recipient :after ((obj connection) (packet packet))
-  (f-format t "-Recipient read. Recipient: ~A~%" (recipient packet)))
+  (f-format :debug :packet-read  "-Recipient read. Recipient: ~A" (recipient packet)))
 (defmethod read-recipient ((obj connection) (packet packet))
   (setf (recipient packet)
         (convert-to-string (read-n-bytes
                             %connection-name-len (c-stream obj)))))
 
 (defmethod read-op :before ((obj connection)(packet packet))
-  (f-format t "--Reading op~%"))
+  (f-format :debug :packet-read  "--Reading op"))
 (defmethod read-op :after ((obj connection)(packet packet))
-  (f-format t "--OP read. OP: ~A~%" (op packet)))
+  (f-format :debug :packet-read  "--OP read. OP: ~A" (op packet)))
 (defmethod read-op ((obj connection)(packet packet))
   (let* ((op (read-byte (c-stream obj)))
          (op-as-string (convert-to-string (code-char op))))
@@ -53,20 +55,20 @@
            (change-class packet 'kill-packet))
           ((string= %op-identify op-as-string)
            (change-class packet 'identify-packet))
-          (t (f-format t "Packet taken in is not a valid packet ~A" packet)))))
+          (t (f-format :error :packet-read "Packet taken in is not a valid packet ~A" packet)))))
 ;;when packet is wrong it needs to be dropped, this needs to be written
 
 
 (defmethod handle-op :before ((obj connection)(packet packet))
-  (f-format t "--Handling OP~%"))
+  (f-format :debug :packet-read  "--Handling OP"))
 (defmethod handle-op :after ((obj connection)(packet packet))
-  (f-format t "--OP Handled. Type of packet: ~A~%" (type-of packet)))
+  (f-format :debug :packet-read  "--OP Handled. Type of packet: ~A" (type-of packet)))
 (defmethod handle-op ((obj connection)(packet kill-packet))
   :SHUTDOWN)
 (defmethod handle-op ((obj connection)(packet ack-packet))
   :ACKNOWLEDGE)
 (defmethod handle-op :after ((obj connection)(packet data-packet))
-  (f-format t "---Data: ~s~%" (data packet)))
+  (f-format :debug :packet-read  "---Data: ~s" (data packet)))
 (defmethod handle-op ((obj connection)(packet data-packet))
   "Thisn here handles the op code 'd' by downloading the correct amount of data and placing it in the 
 correct place in the packet"
@@ -80,9 +82,10 @@ correct place in the packet"
   (setf (id packet)
         (convert-to-string (read-n-bytes %connection-name-len (c-stream obj)))))
 (defmethod read-footer :before ((obj connection)(packet packet))
-  (f-format t "-reading footer~%"))
+  (f-format :debug :packet-read  "-reading footer"))
 (defmethod read-footer :after ((obj connection)(packet packet))
-  (f-format t "-footer read~%Packet End!~%"))
+  (f-format :debug :packet-read  "-footer read")
+  (f-format :debug :packet-read  "Packet End!"))
 (defmethod read-footer ((obj connection)(packet packet))
   (setf (footer packet)
         (convert-to-string (read-n-bytes (length %stop-footer) (c-stream obj)))))
@@ -121,7 +124,7 @@ correct place in the packet"
   "processes all the packets that are received by Connection. It calls the functions  that are stored within a list under the key :ALL in the slot 'packet-processor-functions' with the argument packet and an list-of-arguments which is also stored" 
   (packet-process obj packet :ALL))
 (defmethod process-packet ((obj connection)(packet identify-packet))
-  (f-format t "IDENTITY RECEIVED~A"))
+  (f-format :debug :packet-process "IDENTITY RECEIVED~A"))
 (defmethod process-packet ((obj connection)(packet kill-packet))
   "Processes a received kill-packet and shuts down the connection"
   (shutdown obj))

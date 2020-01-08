@@ -26,18 +26,16 @@
     (handler-case (let ((r-c-f-n (format nil "[SERVER]:~A-receive" name))
                         (p-p-f-n (format nil "[SERVER]:~A-packet-process" name)))
                     (declare (ignore p-p-f-n)) ;;just temporary
-                    (setf (receive-connections-function server)
-                          (make-thread (lambda ()
-                                         (accept-connections server))
-                                       :name r-c-f-n)))
+                    (if (equal (set-server-socket server) :ADDRESS-IN-USE)
+                        (shutdown server)
+                        (setf (receive-connections-function server)
+                              (make-thread (lambda ()
+                                             (accept-connections server))
+                                           :name r-c-f-n))))
       ;;currently we don't do nuffin with the packets we receive
       (serious-condition (c) (progn (format t "Server error: ~s~%" c)
-                                    (unless
-                                        (equal (c-socket server)
-                                               :server-socket-not-set)
-                                      (shutdown server))
+                                    (shutdown server)
                                     server)))
-                                        ; (print-object server t)
     server))
 
 
@@ -52,49 +50,44 @@
         :else
           :do (push-to-queue packet (list (packet-queue obj)))))
 (defmethod accept-connections ((obj server))
-  (loop :do 
-    (let ((connection (make-instance 'connection :ip (ip obj) :port (port obj))))
-      (setf (current-listening-socket obj) connection)
-      (handler-case (progn (set-server-socket connection)
-                           (f-format t "made it~%")
-                           (wait-for-connection connection))
-        ;;when we make this, how the frick does it get shut down if the server is going.. it is just going to leave us with 
-        (serious-condition (c) (progn (format t "accept-connections error: ~s~%" c)
-                                      (shutdown connection)
-                                      connection)))
-      ;;we need to accept one identity packet first, set the name of the client and then use that
-      ;;key in the current-connections hash-table
-      (f-format t "------WAITING ON IDENTIFY-------~%")
-      (let ((identify-packet (download-sequence connection)))        
-        (f-format t "-----A PACKET HAS BEEN RECEIVED-------~%")
-        (if (equal (type-of identify-packet) 'identify-packet)
-            (let ((id (remove-trailing-nulls (id identify-packet))))
-              (setf (connection-name connection) id)
-              ;;connection doesn't have ppf slot...
-              ;;(push-to-queue packet (packet-queue obj))
-              (setf (gethash id (current-connections obj))
-                    (cons connection ;;really important to remember that there is a cons here 
-                          (bt:make-thread (lambda ()
-                                            (download-push-to-queue obj connection))
-                                          :name (format nil "[SERVER]:~A-packet-download" id))))
+  (loop :do
+    (let ((current-connection (wait-for-connection obj (make-instance 'connection))))
+      (when (not (equal current-connection :SERIOUS-CONDITION))
+        ;;we need to accept one identity packet first, set the name of the client
+        ;;and then use that
+        ;;key in the current-connections hash-table
+        (f-format :debug :server-receive   "------WAITING ON IDENTIFY-------")
+        (let ((identify-packet (download-sequence current-connection)))        
+          (f-format :debug :server-receive  "-----A PACKET HAS BEEN RECEIVED-------~%")
+          (if (equal (type-of identify-packet) 'identify-packet)
+              (let ((id (remove-trailing-nulls (id identify-packet))))
+                (setf (connection-name current-connection) id)
+                ;;connection doesn't have ppf slot...
+                ;;(push-to-queue packet (packet-queue obj))
+                (setf (gethash id (current-connections obj))
+                      (cons current-connection ;;really important to remember that there is a cons 
+                            (bt:make-thread
+                             (lambda ()
+                               (download-push-to-queue obj current-connection))
+                             :name (format nil "[SERVER]:~A-packet-download" id))))
                                         ; (f-format t "SENDING ACK TO CLIENT~%")
-              (send connection (build-ack-packet)))
- ;;;can't dispatch on connections currently... connection dont have packet-processor-functions or  ;;;processor names    
-            
-            (let ((type (type-of identify-packet)))
-              (f-format t "packet was not of type identify-packet: ~A~%" type)
-              (f-format t "breaking connection~%")
-              (shutdown connection)))))))
+                (send current-connection (build-ack-packet)))
+ ;;;can't dispatch on connections currently... connection dont have packet-processor-functions or  ;;;processor names
+              (let ((type (type-of identify-packet)))
+                (f-format :error :server-receive
+                          "packet was not of type identify-packet: ~A" type)
+                (f-format :error :server-receive  "breaking connection")
+                (shutdown current-connection))))))))
 
 (defmethod shutdown ((obj connection))
   "shuts down the connection on server"
-                                        ; (print-object obj t)
+  ;; (print-object obj t)
   ;;(find-and-kill-thread (processor-name obj))
-  (usocket:socket-close (c-socket obj)))
+  (safe-socket-close (c-socket obj)))
 (defmethod shutdown :before ((obj server))
-  (f-format t "Attempting to shutdown server~%"))
+  (f-format :info :server-stop "Attempting to shutdown server"))
 (defmethod shutdown :after ((obj server))
-  (f-format t "Shutdown complete~%"))
+  (f-format :info :server-stop "Shutdown complete~%"))
 (defmethod shutdown ((obj server))
   "shuts down all the connections that the server is managing"
   (let ((table (current-connections obj)))
@@ -110,36 +103,50 @@
   ;;need to stop the function that is accepting new connections
   ;;it is important that the thread is killed first, so that no modifications are made
   ;;to the value of current-listening-socket
-  (stop-thread (receive-connections-function obj))
-  ;;(bt:destroy-thread (process-packets-function obj))
-  (usocket:socket-close (c-socket (current-listening-socket obj)))
-  (remhash (name obj) *current-servers*)
-  (sleep 1))
+  (let ((thread (receive-connections-function obj))
+        (socket (current-listening-socket obj)))
+    (unless (keywordp thread)
+      (stop-thread thread)
+      ;;(bt:destroy-thread (process-packets-function obj))
+      (unless (keywordp socket)
+        (safe-socket-close  socket))
+      (remhash (name obj) *current-servers*))))
 
-(defmethod set-server-socket :before ((object connection))
-  (f-format t "Creating socket~%"))
-(defmethod set-server-socket :after ((object connection))
-  (f-format t "Socket created: ~A~%" (c-socket object)))
-(defmethod set-server-socket ((object connection))
-  (setf (c-socket object)
-        (usocket:socket-listen  (ip object)
-                                (port object)
-                                :element-type '(unsigned-byte 8)
-                                :reuse-address t
-                                :reuseaddress t)))
+(defmethod set-server-socket :before ((object server))
+  (f-format :debug :server-receive  "Creating socket"))
+(defmethod set-server-socket :after ((object server))
+  (f-format :debug :server-receive  "Socket created: ~A" (current-listening-socket object)))
+(defmethod set-server-socket ((object server))
+  (handler-case
+      (setf (current-listening-socket object)
+            (usocket:socket-listen  (ip object)
+                                    (port object)
+                                    :element-type '(unsigned-byte 8)
+                                    :reuse-address t
+                                    :reuseaddress t))
+    (USOCKET:ADDRESS-IN-USE-ERROR (c)
+      (f-format :all :server-start "address in use ~A~%" c)
+      :ADDRESS-IN-USE)))
 
-(defmethod wait-for-connection :before ((obj connection))
-  (f-format t "Waiting on socket: ~A for a connection from the client~%" (c-socket obj)))
-(defmethod wait-for-connection :after ((obj connection))
-  (f-format t "Completed the connection with: ~A on port: ~A" 
-            (usocket:get-peer-address (c-socket obj))
-            (usocket:get-peer-port (c-socket obj))))
-(defmethod wait-for-connection ((obj connection))
+(defmethod wait-for-connection :before ((obj server)(con connection))
+  (f-format :debug :server-receive  "Waiting on socket: ~A for a connection from the client"
+            (current-listening-socket obj)))
+(defmethod wait-for-connection :after ((obj server)(con connection))
+  (f-format :debug :server-receive  "Completed the connection"))
+(defmethod wait-for-connection ((obj server)(con connection))
   "takes the obj and waits until it has a connection and then sets the stream"
-  (handler-case (let ((wait (usocket:socket-accept (c-socket obj))))
-                  (setf (c-stream obj) (usocket:socket-stream wait)))
-    (serious-condition (c) (progn (format t "Fatal issues waiting for connection: ~A" c)
-                                  (shutdown obj)))))
+  (handler-case
+      (let ((wait (usocket:socket-accept (current-listening-socket obj))))
+        (setf (c-socket con) wait
+              (c-stream con) (usocket:socket-stream wait)
+              (ip con) (usocket:get-peer-address (c-socket con))
+              (port con) (usocket:get-peer-port (c-socket con)))
+        con)
+    (serious-condition (c)
+      (f-format :error :server-receive 
+                "Fatal issues waiting for connection: ~A" c)
+      :SERIOUS-CONDITION)))
+
 (defmethod get-current-connections-cons ((obj server) client-name)
   (let ((connections (current-connections obj)))
     (gethash client-name connections)))
@@ -147,7 +154,7 @@
   "returns the connection object associated with client-name"
   (car (get-current-connections-cons obj client-name)))
 (defmethod get-current-connections-thread ((obj server) client-name)
-  (cdr (get-current-connectinos-cons obj client-name)))
+  (cdr (get-current-connections-cons obj client-name)))
 
 
 
