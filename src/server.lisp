@@ -24,14 +24,17 @@
     (error "Name should be a string: ~s" name))
   (let ((server (make-instance 'server :ip listen-ip :port listen-port :name name)))
     (handler-case (let ((r-c-f-n (format nil "[SERVER]:~A-receive" name))
-                        (p-p-f-n (format nil "[SERVER]:~A-packet-process" name)))
-                    (declare (ignore p-p-f-n)) ;;just temporary
+                        (p-p-f-n (format nil "[SERVER]:~A-packet-process" name)))                    
                     (if (equal (set-server-socket server) :ADDRESS-IN-USE)
                         (shutdown server)
                         (setf (receive-connections-function server)
                               (make-thread (lambda ()
                                              (accept-connections server))
-                                           :name r-c-f-n))))
+                                           :name r-c-f-n)
+                              (process-packets-function server)
+                              (make-thread (lambda ()
+                                             (handle-packets-on-queue server))
+                                           :name p-p-f-n))))
       ;;currently we don't do nuffin with the packets we receive
       (serious-condition (c) (progn (format t "Server error: ~s~%" c)
                                     (shutdown server)
@@ -39,9 +42,9 @@
     server))
 
 
-(defmethod push-to-queue ((packet packet) args-in-a-list)
-  "pushes all the packets received to the queue that is supplied as the first argument in the list args-in-a-list"
-  (lparallel.queue:push-queue packet (first args-in-a-list)))
+                    (defmethod push-to-queue ((packet packet) args-in-a-list)
+                      "pushes all the packets received to the queue that is supplied as the first argument in the list args-in-a-list"
+                      (lparallel.queue:push-queue packet (first args-in-a-list)))
 (defmethod download-push-to-queue ((obj server)(connection connection))
   "Downloads packets from connection and then pushes them onto the servers queue. If the download-sequence returns :EOF then the thread will nicely return :DONE"
   (loop :for packet := (download-sequence connection) :then (download-sequence connection)
@@ -49,6 +52,14 @@
           :do  (return :DONE)
         :else
           :do (push-to-queue packet (list (packet-queue obj)))))
+
+(defmethod handle-packets-on-queue ((obj server))
+  (let ((queue (packet-queue obj)))
+    (loop :do
+      (handle-packet obj
+                     (lparallel.cons-queue:pop-cons-queue queue)))))
+
+
 (defmethod accept-connections ((obj server))
   (loop :do
     (let ((current-connection (wait-for-connection obj (make-instance 'connection))))
@@ -60,7 +71,7 @@
         (let ((identify-packet (download-sequence current-connection)))        
           (f-format :debug :server-receive  "-----A PACKET HAS BEEN RECEIVED-------~%")
           (if (equal (type-of identify-packet) 'identify-packet)
-              (let ((id (remove-trailing-nulls (id identify-packet))))
+              (let ((id (convert-to-string-and-clean (id identify-packet))))
                 (setf (connection-name current-connection) id)
                 ;;connection doesn't have ppf slot...
                 ;;(push-to-queue packet (packet-queue obj))
@@ -78,6 +89,11 @@
                           "packet was not of type identify-packet: ~A" type)
                 (f-format :error :server-receive  "breaking connection")
                 (shutdown current-connection))))))))
+#|
+okay so we don't start a packet process function currently, so packets can't be sent, currently
+the only packet that is not exclusively between a client and the server is the data packet, so what 
+we need is
+|#
 
 (defmethod shutdown ((obj connection))
   "shuts down the connection on server"
@@ -103,14 +119,16 @@
   ;;need to stop the function that is accepting new connections
   ;;it is important that the thread is killed first, so that no modifications are made
   ;;to the value of current-listening-socket
-  (let ((thread (receive-connections-function obj))
+  (let ((receive-connections (receive-connections-function obj))
+        (process-packets (process-packets-function obj))
         (socket (current-listening-socket obj)))
-    (unless (keywordp thread)
-      (stop-thread thread)
-      ;;(bt:destroy-thread (process-packets-function obj))
-      (unless (keywordp socket)
-        (safe-socket-close  socket))
-      (remhash (name obj) *current-servers*))))
+    (unless (keywordp receive-connections)
+      (stop-thread receive-connections))
+    (unless (keywordp process-packets)
+      (stop-thread process-packets))
+    (unless (keywordp socket)
+      (safe-socket-close  socket))
+    (remhash (name obj) *current-servers*)))
 
 (defmethod set-server-socket :before ((object server))
   (f-format :debug :server-receive  "Creating socket"))

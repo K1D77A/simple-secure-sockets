@@ -29,8 +29,9 @@
       (setf (id packet) id-vecced)
       packet)))
 
-(defun build-data-packet (recipient data)
+(defun build-data-packet (sender recipient data)
   (let* ((packet (build-packet recipient %op-data))
+         (sender-vecced (vectorize-data sender %connection-name-len))
          (d-vecced (vectorize-data data))
          (len (length d-vecced)))
     (unless (<= len  %max-data-size)
@@ -38,6 +39,7 @@
     (change-class packet 'data-packet)
     (setf (d-len packet) (make-array 1 :element-type '(unsigned-byte 8) :initial-element len))
     (setf (data packet) d-vecced)
+    (setf (sender packet) sender-vecced)
     packet))
 (defun force-write-sequence (seq stream)
   (write-sequence seq stream)
@@ -53,11 +55,12 @@
                    (len d-len)
                    (header header)
                    (footer footer)
+                   (sender sender)
                    (op op))
       packet
     (force-write-sequence 
      (concatenate '(vector (unsigned-byte 8))
-                  header recipient op len data footer)
+                  header recipient op sender len data footer)
      (c-stream connection))))
 
 (defmethod send (connection (packet kill-packet))

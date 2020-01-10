@@ -13,7 +13,8 @@
                          (let ((server-con-to-client
                                  (get-current-connections-object server
                                                                  (connection-name client))))
-                           (send server-con-to-client (build-data-packet (connection-name client)
+                           (send server-con-to-client (build-data-packet (name server)
+                                                                         (connection-name client)
                                                                          "beep boop im groot")))
                          
                          (shutdown server)
@@ -39,12 +40,13 @@
                  (mapcar (lambda (client)
                            (send (get-current-connections-object server
                                                                  (connection-name client))
-                                 (build-data-packet (connection-name client)
+                                 (build-data-packet (name server)
+                                                    (connection-name client)
                                                     (format nil "here is some data client~d" x)))
                            (incf x))
                          clients))
                (sleep 1)
-                                        ; (print (bt:all-threads))
+               (print (bt:all-threads))
                (shutdown server)
                (mapcar #'shutdown clients)
                server)

@@ -157,6 +157,51 @@
   t)
 (defmethod safe-socket-close (socket)
   :SOCKET-WAS-NOT-A-SOCKET)
-(defvar *!equivs* (make-hash-table))
-(defun ! (func)
-  
+(defun class-direct-reader-slots (class)
+  (mapcar #'closer-mop:slot-definition-readers
+          (closer-mop:class-direct-slots class)))
+(defun packet-class-readers (packet-class)
+  (if (equal packet-class 'packet)
+      (class-direct-reader-slots packet-class)
+      (if (closer-mop:subclassp (find-class packet-class) (find-class 'packet))
+          (append
+           (class-direct-reader-slots (find-class packet-class))
+           (class-direct-reader-slots (find-class 'packet))))))
+(defun convert-to-string-and-clean (seq &optional (clean-func #'remove-trailing-nulls))
+  "converts the seq to a string and then funcalls 'clean-func' on the returned string"
+  (funcall clean-func (convert-to-string seq)))
+;; (defmacro with-func-applied-to-accessors (func accessors object &body body)
+;;   `(with-accessors ,accessors ,object
+;;      (let (mapcar (lambda (acc)
+;;                     (let ((obj (first ,acc)))
+;;                       (funcall ,func ,acc)))
+;;                   ,accessors)
+;;        ,@body)))
+;; (with-accessors ((op op)
+;;                  (reader reader))
+;;     (make-instance 'packet)
+;;   (let ((op (remove-trailing-nulls (convert-to-string op)))
+;;         (reader (remove-trailing-nulls (convert-to-string reader))))
+;;     body))
+
+;; <aeth> Josh_2: for one (with more, consider using alexandria) you'd want
+;; something like this: (let ((g (gensym))) `(flet ((,g ...) ((setf ,g)
+;;                                                               ...)) (with-accessors ((,name ,g)) ,thing-being-accessed ,@body)))
+;; *** ahungry (~user@99-40-9-245.lightspeed.livnmi.sbcglobal.net) has quit:
+;; Remote host closed the connection  [03:37]
+;; <aeth> and now you can control what's being set/read by the accessor in
+;; with-accessors by controlling the ...
+;; <aeth> notice how with-accessors needs to be in the inner scope
+;; <aeth> and actually, if you use with-accessors instead of symbol-macrolet you
+;; know more (the getter can only have one argument and the setter two)
+;; and can say something like (flet ((,g (object) ...) ((setf ,g)
+;;                                                         (new-value object) ...)) ...)  [03:39]
+;; <aeth> (whether or not those need gensyms and ,s depends on your specific
+;;                 design of their function bodies)  [03:40]
+;; *** ahungry (~user@99-40-9-245.lightspeed.livnmi.sbcglobal.net) has joined
+;; channel #lisp  [03:41]
+;; <aeth> As a rule of thumb, if the user has access to a function body, you need
+;; gensyms, and otherwise you don't... so you need to gensym the function
+;; g because it's in the scope of ,@body -- which is user provided -- but
+;; you might not necessarily need gensyms within the flet bodies
+;; <aeth> s/a function body/a body/

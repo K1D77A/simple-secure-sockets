@@ -24,7 +24,10 @@
 
 
 (defclass client (connection)
-  ((packet-processor-functions
+  ((available-clients
+    :accessor available-clients
+    :initform :available-clients-not-set)
+   (packet-processor-functions
     :accessor ppf
     :initform (make-hash-table))
    (packet-queue
@@ -33,12 +36,7 @@
     :initform (lparallel.queue:make-queue))
    (packet-download-thread
     :accessor packet-download-thread
-    :initform :download-thread-not-set)
-   (timeout
-    :accessor timeout
-    :initarg :timeout
-    :initform 5
-    :documentation "timeout is the time that the client will wait for certain packets from the server"))
+    :initform :download-thread-not-set))
   (:documentation "class containing the slots required for the client"))
 
 
@@ -48,15 +46,13 @@
     :initarg :name
     :initform :name-not-set)
    (ip
-    :type string
     :accessor ip
     :initarg :ip
     :initform :ip-not-set)
    (port
-    :type integer
     :accessor port
     :initarg :port
-    :initform :ip-not-set)
+    :initform :port-not-set)
    (current-connections
     :accessor current-connections
     :initform (make-hash-table :test #'equal))
@@ -102,7 +98,10 @@
     :initform :data-length-not-set)
    (data
     :accessor data
-    :initform :data-not-set)))
+    :initform :data-not-set)
+   (sender
+    :accessor sender
+    :initform :sender-not-set)))
 (defclass identify-packet (packet)
   ((id
     :accessor id
@@ -116,11 +115,11 @@
 
 (defmethod print-object ((object server) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Process packet Function: ~A~%Process packets function: ~A~%Current-connections: ~%"
+    (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Packet queue: ~A~%Process packets function: ~A~%Current-connections: ~%"
             (name object)
             (receive-connections-function object)
-            (process-packets-function object)
-            (packet-queue object))
+            (packet-queue object)
+            (process-packets-function object))
     (maphash (lambda (key val)
                (declare (ignore key))
                (format stream "~A~%" val))
@@ -128,18 +127,18 @@
 
 (defmethod print-object ((object client) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "Name: ~A~%Address: ~A:~A~%Timeout: ~A~%Socket: ~A~%Stream: ~A~%Packet download thread: ~A~%"
+    (format stream "Name: ~A~%Address: ~A:~A~%Available clients: ~A~%Socket: ~A~%Stream: ~A~%Packet download thread: ~A~%"
             (connection-name object)
             (ip object)
             (port object)
-            (timeout object)
+            (available-clients object)
             (c-socket object)
             (c-stream object)
             ;;  (ppf object)
             (packet-download-thread object))))
 
 (defmethod print-object ((object connection) stream)
-  (print-unreadable-object (object stream :type t :identity t)
+  (print-unreadable-object (object stream :type t :identity t)    
     (format stream "~%Name: ~A~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%"
             (connection-name object)
             (ip object)
@@ -149,21 +148,46 @@
 
 (defmethod print-object ((object data-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~%Data: ~s~%"
-            (convert-to-string (data object)))))
+    (print-packet-superclass stream object)
+    (format stream "Sender: ~s~%Recipient: ~s~%Length: ~s~%Data: ~s~%"
+            (convert-to-string-and-clean (sender object))
+            (convert-to-string-and-clean (recipient object))
+            (convert-to-string-and-clean (aref (d-len object) 0))
+            (convert-to-string-and-clean (data object)))))
+
+(defmethod print-object ((object kill-packet) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (print-packet-superclass stream object)))
+
+(defmethod print-object ((object ack-packet) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (print-packet-superclass stream object)))
 
 (defmethod print-object ((object identify-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
+    (print-packet-superclass stream object)
     (format stream "~%id: ~s~%"
             (convert-to-string (id object)))))
 
 (defmethod print-object ((object packet) stream)
-  (print-unreadable-object (object stream :type t :identity t)
-    (format stream "Header: ~A~%Recipient: ~A~%OP: ~A~%Footer: ~A~%"
-            (header object)
-            (recipient object)
-            (op object)
-            (footer object))))
+  (print-unreadable-object (object stream)
+    (format stream "Header: ~s~%Recipient: ~s~%OP: ~s~%Footer: ~s~%"
+            (convert-to-string-and-clean (header object))
+            (convert-to-string-and-clean (recipient object))
+            (convert-to-string-and-clean (op object))
+            (convert-to-string-and-clean (footer object)))))
+(defun print-packet-superclass (stream packet)
+  (when (closer-mop:subclassp  (find-class (type-of packet))
+                               (find-class 'packet))
+    (print-unreadable-object (packet stream)
+      (format stream "~%Header: ~s~%Recipient: ~s~%OP: ~s~%Footer: ~s~%"
+              (convert-to-string-and-clean (header packet))
+              (convert-to-string-and-clean (recipient packet))
+              (convert-to-string-and-clean (op packet))
+              (convert-to-string-and-clean (footer packet)))))
+  nil)
+
+
 
 (define-condition wrong-packet-received (error)
   ((message
@@ -189,7 +213,7 @@
 
 (defmethod print-object ((object wrong-packet-received) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~A~%Expected the type ~A~%Received the type: ~A~%Packet received: ~A~%"
+    (format stream "~s~%Expected the type ~s~%Received the type: ~s~%Packet received: ~s~%"
             (e-a-message object)
             (e-a-expected object)
             (e-a-type object)

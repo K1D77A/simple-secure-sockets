@@ -13,10 +13,12 @@
                  (:file "packets/variables")
                  (:file "packets/receive")
                  (:file "packets/send")
+                 (:file "packets/packet-handlers")
                  (:file "client")
                  (:file "server")
                  (:file "tests"))
   :depends-on   (#:usocket
                  #:lparallel
+                 #:closer-mop
                  #:ironclad))
 

@@ -10,7 +10,7 @@
 (defparameter *ip* "")
 (defparameter *port* 12345)
 
-(defvar *current-clients* (make-hash-table))
+(defvar *current-clients* (make-hash-table :test #'equal))
 
 ;; (defun start (name ip port)
 ;;   "Short version of make client"
