@@ -112,7 +112,14 @@
 (defclass kill-packet (packet)
   ()
   (:documentation "Kill packet doesn't have any special information in it so it just inherits from packet. The reason for its existence is so that methods can dispatch on the class"))
-
+(defclass clients-packet (packet)
+  ((client-name
+    :accessor client-name
+    :initform :client-not-set)
+   (connected?
+    :accessor connected?
+    :initform :connected?-not-set))
+  (:documentation "Packet that indicates when a new client has connected or disconnected"))
 (defmethod print-object ((object server) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Packet queue: ~A~%Process packets function: ~A~%Current-connections: ~%"
@@ -169,6 +176,14 @@
     (format stream "~%id: ~s~%"
             (convert-to-string (id object)))))
 
+(defmethod print-object ((object clients-packet) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (print-packet-superclass stream object)
+    (format stream "~%clients-name: ~s~%connected?: ~s~%"
+            (convert-to-string-and-clean (client-name object))
+            (convert-to-string-and-clean (aref (connected? object) 0)))))
+
+
 (defmethod print-object ((object packet) stream)
   (print-unreadable-object (object stream)
     (format stream "Header: ~s~%Recipient: ~s~%OP: ~s~%Footer: ~s~%"
@@ -176,6 +191,7 @@
             (convert-to-string-and-clean (recipient object))
             (convert-to-string-and-clean (op object))
             (convert-to-string-and-clean (footer object)))))
+
 (defun print-packet-superclass (stream packet)
   (when (closer-mop:subclassp  (find-class (type-of packet))
                                (find-class 'packet))

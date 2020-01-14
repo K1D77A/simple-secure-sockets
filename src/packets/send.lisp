@@ -41,6 +41,17 @@
     (setf (data packet) d-vecced)
     (setf (sender packet) sender-vecced)
     packet))
+(defun build-clients-packet (client-name connected?)
+  (if (or (= connected? 1)(= connected? 0))
+      (let ((packet (build-packet %clients-recipient %op-clients))
+            (client-name-vecced (vectorize-data client-name %connection-name-len)))
+        (change-class packet 'clients-packet)
+        (setf (connected? packet) (make-array 1 :element-type '(unsigned-byte 8)
+                                                :initial-element connected?)
+              (client-name packet) client-name-vecced)
+        packet)
+      (error "connected? is not 1 or 0. ~s" connected?)))
+
 (defun force-write-sequence (seq stream)
   (write-sequence seq stream)
   (force-output stream))
@@ -96,3 +107,23 @@
      (concatenate '(vector (unsigned-byte 8))
                   header recipient op footer)
      (c-stream connection))))
+(defmethod send (connection (packet clients-packet))
+  (with-accessors ((recipient recipient)
+                   (header header)
+                   (footer footer)
+                   (op op)
+                   (client-name client-name)
+                   (connected? connected?))
+      packet
+    (force-write-sequence 
+     (concatenate '(vector (unsigned-byte 8))
+                  header recipient op client-name connected? footer)
+     (c-stream connection))))
+
+(defmethod send-all-connected-clients ((obj server) connection)
+  "sends all the currently connected clients to the client that has just connected"
+  (maphash (lambda (key val)
+             (declare (ignore val))
+             ;;don't need val because the connection name is the same as key
+             (send connection (build-clients-packet key 1)))
+           (current-connections obj)))

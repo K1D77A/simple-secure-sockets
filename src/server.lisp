@@ -82,8 +82,10 @@
                                (download-push-to-queue obj current-connection))
                              :name (format nil "[SERVER]:~A-packet-download" id))))
                                         ; (f-format t "SENDING ACK TO CLIENT~%")
-                (send current-connection (build-ack-packet)))
+                (send current-connection (build-ack-packet))
+                (send-all-connected-clients obj current-connection))
  ;;;can't dispatch on connections currently... connection dont have packet-processor-functions or  ;;;processor names
+              
               (let ((type (type-of identify-packet)))
                 (f-format :error :server-receive
                           "packet was not of type identify-packet: ~A" type)

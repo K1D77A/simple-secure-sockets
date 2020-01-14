@@ -55,6 +55,8 @@
            (change-class packet 'kill-packet))
           ((string= %op-identify op-as-string)
            (change-class packet 'identify-packet))
+          ((string= %op-clients op-as-string)
+           (change-class packet 'clients-packet))
           (t (f-format :error :packet-read "Packet taken in is not a valid packet ~A" packet)))))
 ;;when packet is wrong it needs to be dropped, this needs to be written
 
@@ -79,26 +81,19 @@ correct place in the packet"
     (setf (d-len packet) (make-array 1 :element-type '(unsigned-byte 8) :initial-element len)
           (sender packet) sender
           (data packet) data)))
-
-;; (defun beautify-packet (packet)
-;;   "takes in a packet and converts all the slots to strings. a default fresh down the pipe packet contains only vectors and individual bytes, this will convert all the slots to strings"
-;;   (let ((readers (packet-class-readers (type-of packet))))
-;;     (mapcar (lambda (slot)
-;;               (let* ((sym (first slot))
-;;                      (val (funcall (symbol-function sym) packet))
-;;                      (val-to-string (remove-trailing-nulls (convert-to-string val))))
-;;                 (setf (slot-value packet sym) val-to-string)))
-;;             readers))
-;;   packet)
-;;this doesn't work cos of naming oofs
-;;instead could make a macro called with-beautified-packet-slots (slots) packet and then
-;;automagically convert those slots to string and remove trailing, i think that's better idea
-
-
+(defmethod handle-op ((obj connection)(packet clients-packet))
+  (let* ((stream (c-stream obj))
+         (client (read-n-bytes %connection-name-len stream))
+         (connected (read-byte stream)))
+    (setf (client-name packet) client
+          (connected? packet) (make-array 1 :element-type '(unsigned-byte 8)
+                                            :initial-element connected))))
 
 (defmethod handle-op ((obj connection) (packet identify-packet))
   (setf (id packet)
         (read-n-bytes %connection-name-len (c-stream obj))))
+
+
 (defmethod read-footer :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "-reading footer"))
 (defmethod read-footer :after ((obj connection)(packet packet))
