@@ -42,7 +42,8 @@
     (setf (sender packet) sender-vecced)
     packet))
 (defun build-clients-packet (client-name connected?)
-  (if (or (= connected? 1)(= connected? 0))
+  (if (or (= connected? 1)
+          (= connected? 0))
       (let ((packet (build-packet %clients-recipient %op-clients))
             (client-name-vecced (vectorize-data client-name %connection-name-len)))
         (change-class packet 'clients-packet)
@@ -120,10 +121,29 @@
                   header recipient op client-name connected? footer)
      (c-stream connection))))
 
+(defmethod send-data-packet ((obj client) recipient data)
+  (let ((clients (available-clients obj)))
+    (when (member recipient clients :test #'string=)
+      (let ((packet (build-data-packet (connection-name obj)
+                                       recipient
+                                       data)))
+        (send obj packet)
+        t))
+    clients))
+
+
+
 (defmethod send-all-connected-clients ((obj server) connection)
   "sends all the currently connected clients to the client that has just connected"
   (maphash (lambda (key val)
              (declare (ignore val))
              ;;don't need val because the connection name is the same as key
              (send connection (build-clients-packet key 1)))
+           (current-connections obj)))
+(defmethod update-all-clients-with-connected-client ((obj server) connection)
+  (maphash (lambda (key val)
+             (declare (ignore key))
+             (let ((current-con (car val)))
+               (unless (string= (connection-name current-con) (connection-name connection))
+                 (send current-con (build-clients-packet (connection-name connection) 1)))))
            (current-connections obj)))

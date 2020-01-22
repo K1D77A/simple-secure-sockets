@@ -42,9 +42,9 @@
     server))
 
 
-                    (defmethod push-to-queue ((packet packet) args-in-a-list)
-                      "pushes all the packets received to the queue that is supplied as the first argument in the list args-in-a-list"
-                      (lparallel.queue:push-queue packet (first args-in-a-list)))
+(defmethod push-to-queue ((packet packet) args-in-a-list)
+  "pushes all the packets received to the queue that is supplied as the first argument in the list args-in-a-list"
+  (lparallel.queue:push-queue packet (first args-in-a-list)))
 (defmethod download-push-to-queue ((obj server)(connection connection))
   "Downloads packets from connection and then pushes them onto the servers queue. If the download-sequence returns :EOF then the thread will nicely return :DONE"
   (loop :for packet := (download-sequence connection) :then (download-sequence connection)
@@ -71,7 +71,7 @@
         (let ((identify-packet (download-sequence current-connection)))        
           (f-format :debug :server-receive  "-----A PACKET HAS BEEN RECEIVED-------~%")
           (if (equal (type-of identify-packet) 'identify-packet)
-              (let ((id (convert-to-string-and-clean (id identify-packet))))
+              (let ((id  (id* identify-packet)))
                 (setf (connection-name current-connection) id)
                 ;;connection doesn't have ppf slot...
                 ;;(push-to-queue packet (packet-queue obj))
@@ -83,7 +83,8 @@
                              :name (format nil "[SERVER]:~A-packet-download" id))))
                                         ; (f-format t "SENDING ACK TO CLIENT~%")
                 (send current-connection (build-ack-packet))
-                (send-all-connected-clients obj current-connection))
+                ;;(send-all-connected-clients obj current-connection)
+                (update-all-clients-with-connected-client obj current-connection))
  ;;;can't dispatch on connections currently... connection dont have packet-processor-functions or  ;;;processor names
               
               (let ((type (type-of identify-packet)))
@@ -177,22 +178,6 @@ we need is
   (cdr (get-current-connections-cons obj client-name)))
 
 
-
-;;;very simple protocol to send data across the network
-;;;send message saying starting then data type first either data or kill then length first and then the data then a stopping
-;;;ie
-;;;start = #(115 116 97 114 116)
-;;;op data = #(100)
-;;;op kill = #(107)
-;;;len data = #(4)
-;;;data = #(1 2 3 4)
-;;;stop =  #(115 116 111 112)
-;;;complete transfer = #(114 116 97 114 116 100 4 1 2 3 4 115 116 111 112)
-;;;couple examples if data is '(1 2 3 4) then as a string the data is = "startd9(1 2 3 4)stop"
-;;;as a byte-array #(115 116 97 114 116 100 57 40 49 32 50 32 51 32 52 41 115 116 111 112)
-;;;kill is "startkstop"
-;;;as a sequence: #(115 116 97 114 116 107 115 116 111 112)
-;;;hard limit on sequence size is going to be 255 + header and footer bytes
 
 
 

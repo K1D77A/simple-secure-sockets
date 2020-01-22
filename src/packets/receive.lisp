@@ -10,7 +10,7 @@
 
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
-  (declare (optimize (speed 3) (safety 0)))
+  ;; (declare (optimize (speed 3) (safety 0)))
   (handler-case (let ((packet (make-instance 'packet)))
                   (read-header obj packet)
                   (read-recipient obj packet)
@@ -30,9 +30,9 @@
         (read-n-bytes
          (length %start-header) (c-stream obj))))
 (defmethod read-recipient :before ((obj connection) (packet packet))
-  (f-format :debug :packet-read  "-Reading recipient"(get-universal-time)))
+  (f-format :debug :packet-read  "-Reading recipient "(get-universal-time)))
 (defmethod read-recipient :after ((obj connection) (packet packet))
-  (f-format :debug :packet-read  "-Recipient read. Recipient: ~A" (recipient packet)))
+  (f-format :debug :packet-read  "-Recipient read. Recipient: ~A" (recipient* packet)))
 (defmethod read-recipient ((obj connection) (packet packet))
   (setf (recipient packet)
         (read-n-bytes
@@ -41,11 +41,11 @@
 (defmethod read-op :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "--Reading op"))
 (defmethod read-op :after ((obj connection)(packet packet))
-  (f-format :debug :packet-read  "--OP read. OP: ~A" (op packet)))
+  (f-format :debug :packet-read  "--OP read. OP: ~A" (op* packet)))
 (defmethod read-op ((obj connection)(packet packet))
-  (let* ((op (read-byte (c-stream obj)))
-         (op-as-string (convert-to-string (code-char op))))
-    (setf (op packet) (make-array 1 :element-type '(unsigned-byte 8) :initial-element op))
+  (let* ((op (read-n-bytes 1 (c-stream obj)))
+         (op-as-string (c2s-c (code-char (aref op 0)))))
+    (setf (op packet) op)
     ;;(print-object packet t)
     (cond ((string=  %op-data op-as-string)
            (change-class packet 'data-packet))
@@ -70,7 +70,7 @@
 (defmethod handle-op ((obj connection)(packet ack-packet))
   :ACKNOWLEDGE)
 (defmethod handle-op :after ((obj connection)(packet data-packet))
-  (f-format :debug :packet-read  "---Data: ~s" (data packet)))
+  (f-format :debug :packet-read  "---Data: ~s" (data* packet)))
 (defmethod handle-op ((obj connection)(packet data-packet))
   "Thisn here handles the op code 'd' by downloading the correct amount of data and placing it in the 
 correct place in the packet"
@@ -108,13 +108,7 @@ correct place in the packet"
 ;;;;argument and a connection
 
 
-(defmethod packet-download-function ((obj client))
-  "Keeps calling the function download-sequence until the thread is manually killed. If the thread receives an :EOF from download-sequence it will simply return :DONE"
-  (loop :for packet := (download-sequence obj) :then (download-sequence obj)
-        :if (equal packet :EOF)
-          :do  (return :DONE)
-        :else
-          :do (push-to-queue packet (list (packet-queue obj)))))
+
 ;;okay so this isn't working properly, I think a better idea is to create a queue for the client
 ;;and then push all packets to the queue then after its easier to just process them
 ;; (defmethod packet-process ((obj client) (packet packet) keyword)

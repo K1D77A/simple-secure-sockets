@@ -49,9 +49,19 @@
       (f-format :info :client-start  "connected properly")
       (setf (packet-download-thread client)
             (make-thread (lambda () (packet-download-function client))
-                         :name (format nil "[CLIENT]:~A-packet-download" name))))
+                         :name (format nil "[CLIENT]:~A-packet-download" name)))
+      (setf (packet-processor-function client)
+            (make-thread (lambda () (handle-packets-on-queue client))
+                         :name (format nil "[CLIENT]:~A-packet-process" name))))
     (f-format :debug :client-start "returning client")
     client))
+
+(defmethod handle-packets-on-queue ((obj client))
+  (let ((queue (packet-queue obj)))
+    (loop :do
+      (handle-packet obj
+                     (lparallel.cons-queue:pop-cons-queue queue)))))
+
 
 (defmethod connect :before ((obj client))
   (f-format :info :client-connect  "Attempting to connect to host: ~s" (ip obj)))
@@ -89,10 +99,13 @@
   (f-format :info :client-stop  "Shutdown complete"))
 (defmethod shutdown ((obj client))
   "shuts down the connection on server"
-  (ignore-errors (stop-thread (packet-download-thread obj))
-                 ;;need to send a kill packet
-                 (safe-socket-close (c-socket obj));;this throws and end of file for some reason.
-                 (remhash (connection-name obj) *current-clients*)))
+  (ignore-errors
+   (stop-thread (packet-processor-function obj))
+   (stop-thread (packet-download-thread obj))
+   
+   ;;need to send a kill packet
+   (safe-socket-close (c-socket obj));;this throws and end of file for some reason.
+   (remhash (connection-name obj) *current-clients*)))
 
 
 

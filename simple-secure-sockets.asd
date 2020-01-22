@@ -8,7 +8,9 @@
   :pathname "src"
   :components   ((:file "package")
                  (:file "helpers")
-                 (:file "classes")
+                 (:file "classes/connections")
+                 (:file "classes/conditions")
+                 (:file "classes/packets")
                  (:file "generics")
                  (:file "packets/variables")
                  (:file "packets/receive")

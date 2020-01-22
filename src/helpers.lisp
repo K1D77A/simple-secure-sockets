@@ -170,6 +170,8 @@
 (defun convert-to-string-and-clean (seq &optional (clean-func #'remove-trailing-nulls))
   "converts the seq to a string and then funcalls 'clean-func' on the returned string"
   (funcall clean-func (convert-to-string seq)))
+(defun c2s-c (seq &optional (clean-func #'remove-trailing-nulls))
+  (convert-to-string-and-clean seq clean-func))
 ;; (defmacro with-func-applied-to-accessors (func accessors object &body body)
 ;;   `(with-accessors ,accessors ,object
 ;;      (let (mapcar (lambda (acc)
