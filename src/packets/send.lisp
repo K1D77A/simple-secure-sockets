@@ -67,6 +67,12 @@
     ;;want to make sure that it has not be previously set, ie when it is being forwarded
     (let ((sender-vecced (vectorize-data (connection-name connection) %connection-name-len)))
       (setf (sender packet) sender-vecced))))
+(defun write-all-to-stream (stream &rest args)
+  "Writes all of the args to stream and forces the output after"
+  (mapcar (lambda (arg)
+            (write-sequence arg stream))
+          args)
+  (force-output stream))
 (defmethod send (connection (packet data-packet))
   (add-sender connection packet)
   (with-accessors ((recipient recipient)
@@ -77,10 +83,8 @@
                    (sender sender)
                    (op op))
       packet
-    (force-write-sequence 
-     (concatenate '(vector (unsigned-byte 8))
-                  header recipient sender op len data footer)
-     (c-stream connection)))
+    (write-all-to-stream (c-stream connection)
+                         header recipient sender op len data footer))
   packet)
 (defmethod send (connection (packet kill-packet))
   (add-sender connection packet)
@@ -90,97 +94,92 @@
                    (sender sender)
                    (op op))
       packet
-    (force-write-sequence 
-     (concatenate '(vector (unsigned-byte 8));;a better way to do this is to just
-                  ;;map over each accessor which is of type byte 8 and then just send each one
-                  ;;down the pipe
-                  header recipient sender op footer)
-     (c-stream connection))))
+    (write-all-to-stream  (c-stream connection)
+                          header recipient sender op footer))
+  packet)
 
-  (defmethod send (connection (packet identify-packet))
-    (add-sender connection packet)
-    (with-accessors ((recipient recipient)
-                     (header header)
-                     (id id)
-                     (sender sender)
-                     (footer footer)
-                     (op op))
-        packet
-      (force-write-sequence 
-       (concatenate '(vector (unsigned-byte 8))
-                    header recipient sender op id footer)
-       (c-stream connection))))
+(defmethod send (connection (packet identify-packet))
+  (add-sender connection packet)
+  (with-accessors ((recipient recipient)
+                   (header header)
+                   (id id)
+                   (sender sender)
+                   (footer footer)
+                   (op op))
+      packet
+    (write-all-to-stream (c-stream connection)
+                         header recipient sender op id footer))
+  packet)
+(defmethod send (connection (packet ack-packet))
+  (add-sender connection packet)
+  (with-accessors ((recipient recipient)
+                   (header header)
+                   (footer footer)
+                   (sender sender)
+                   (op op))
+      packet
+    (write-all-to-stream (c-stream connection)
+                         header recipient sender op footer))
+  packet)
+(defmethod send (connection (packet clients-packet))
+  (add-sender connection packet)
+  (with-accessors ((recipient recipient)
+                   (header header)
+                   (footer footer)
+                   (sender sender)
+                   (op op)
+                   (client-name client-name)
+                   (connected? connected?))
+      packet
+    (write-all-to-stream (c-stream connection)
+                         header recipient sender op client-name connected? footer))
+  packet)
 
-  (defmethod send (connection (packet ack-packet))
-    (add-sender connection packet)
-    (with-accessors ((recipient recipient)
-                     (header header)
-                     (footer footer)
-                     (sender sender)
-                     (op op))
-        packet
-      (force-write-sequence 
-       (concatenate '(vector (unsigned-byte 8))
-                    header recipient sender op footer)
-       (c-stream connection))))
-  (defmethod send (connection (packet clients-packet))
-    (add-sender connection packet)
-    (with-accessors ((recipient recipient)
-                     (header header)
-                     (footer footer)
-                     (sender sender)
-                     (op op)
-                     (client-name client-name)
-                     (connected? connected?))
-        packet
-      (force-write-sequence 
-       (concatenate '(vector (unsigned-byte 8))
-                    header recipient sender op client-name connected? footer)
-       (c-stream connection))))
-
-  (defmethod send-data-packet ((obj client) recipient data)
-    (let ((clients (available-clients obj)))
-      (when (member recipient clients :test #'string=)
-        (let ((packet (build-data-packet recipient
-                                         data)))
-          (send obj packet)
-          t))
-      clients))
+(defmethod send-data-packet ((obj client) recipient data)
+  (let ((clients (available-clients obj)))
+    (when (member recipient clients :test #'string=)
+      (let ((packet (build-data-packet recipient
+                                       data)))
+        (send obj packet)
+        t))
+    clients))
 
 
 
-  (defmethod send-all-connected-clients ((obj server) connection)
-    "sends all the currently connected clients to the client that has just connected"
-    (maphash (lambda (key val)
-               (declare (ignore val))
-               ;;don't need val because the connection name is the same as key
-               (send connection (build-clients-packet key 1)))
-             (current-connections obj)))
-  (defmethod update-all-clients-with-all-connected ((obj server))
-    (maphash (lambda (key val)
-               (declare (ignore key))
-               (let ((con (car val)))
-                 (maphash (lambda (key2 val2)
-                            (declare (ignore val2))
-                            (unless (string= (connection-name con)
-                                             key2)
-                              (send con (build-clients-packet key2 1))))
-                          (current-connections obj))))
-             (current-connections obj)))
+(defmethod send-all-connected-clients ((obj server) connection)
+  "sends all the currently connected clients to the client that has just connected"
+  (maphash (lambda (key val)
+             (declare (ignore val))
+             ;;don't need val because the connection name is the same as key
+             (send connection (build-clients-packet key 1)))
+           (current-connections obj)))
+(defmethod update-all-clients-with-all-connected ((obj server))
+  (maphash (lambda (key val)
+             (declare (ignore key))
+             (let ((con (car val)))
+               (maphash (lambda (key2 val2)
+                          (declare (ignore val2))
+                          (unless (string= (connection-name con)
+                                           key2)
+                            (send con (build-clients-packet key2 1))))
+                        (current-connections obj))))
+           (current-connections obj)))
 
-  ;;map over the connections, then send all 
-  
-  (defun update-all-clients-with-connected?-client (server connection connectedp)
-    (maphash (lambda (key val)
-               (declare (ignore key))
-               (let ((current-con (car val)))
-                 (unless (string= (connection-name current-con) (connection-name connection))
-                   (ignore-errors (send current-con (build-clients-packet (connection-name connection)
-                                                                          (if connectedp 1 0)))))))
-             ;;we do not want the function to fail to send to clients that are still connected, just
-             ;;because one has disconnected in quick succession. 
-             (current-connections server)))
-  (defmethod update-all-clients-with-connected-client ((obj server) connection)
-    (update-all-clients-with-connected?-client obj connection t))
-  (defmethod update-all-clients-with-disconnected-client ((obj server) connection)
-    (update-all-clients-with-connected?-client obj connection nil))
+;;map over the connections, then send all 
+
+(defun update-all-clients-with-connected?-client (server connection connectedp)
+  (maphash (lambda (key val)
+             (declare (ignore key))
+             (let ((current-con (car val)))
+               (unless (string= (connection-name current-con) (connection-name connection))
+                 (ignore-errors
+                  (send current-con
+                        (build-clients-packet (connection-name connection)
+                                              (if connectedp 1 0)))))))
+           ;;we do not want the function to fail to send to clients that are still connected, just
+           ;;because one has disconnected in quick succession. 
+           (current-connections server)))
+(defmethod update-all-clients-with-connected-client ((obj server) connection)
+  (update-all-clients-with-connected?-client obj connection t))
+(defmethod update-all-clients-with-disconnected-client ((obj server) connection)
+  (update-all-clients-with-connected?-client obj connection nil))

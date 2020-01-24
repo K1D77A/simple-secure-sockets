@@ -1,11 +1,6 @@
 
 (in-package :simple-secure-sockets)
 
-
-
-(defparameter *ip* "127.0.0.1")
-(defparameter *port* 12345)
-
 (defparameter *current-servers* (make-hash-table :test 'equal))
 (defun start-server (name ip &optional (port 55555))
   (if (unique-key-p *current-servers* name)

@@ -71,7 +71,7 @@
 (defgeneric convert-to-string (data)
   (:documentation "converts a variety of data types into a string")
   (:method ((data string))
-    data)
+    (format nil "~A" data))
   (:method ((data list))
     (format nil "~A" data))
   (:method ((data integer))
@@ -88,10 +88,12 @@
 
 (defun vectorize-data (data &optional (set-length nil))
   "takes in a string and converts it to an array of type '(unsigned-byte 8)"
-  (let* ((as-string (convert-to-string data))
+  (declare (optimize (speed 3)(safety 1)))
+  (let* ((as-string (the simple-string (convert-to-string data)))
          (arr (make-array (or set-length (length as-string))
                           :element-type '(unsigned-byte 8))))
-    (map-into arr #'char-code as-string)))
+    (declare (string as-string))
+    (the simple-array (map-into arr #'char-code as-string))))
 
 (defun string-to-keyword (string)
   (intern string :keyword))
