@@ -4,6 +4,7 @@
 
 (defparameter *debug-level* :all)
 (defparameter *debug-levels* '(:none :all :error :warn :info :debug))
+ ;; '(:debug :info :warn :error :all :none))
 (defparameter *valid-format-prefixes*
   (list :testing
         :packet-read :packet-write
@@ -28,10 +29,10 @@
   (if (not (equal *debug-level* :none))
       (when (or (equal level :all)
                 (<= (position level *debug-levels*)
-                    (position *debug-level* *debug-levels*))
-                (apply (function forced-format) *trace-output*
-                       (conc-level-prefix-and-control-string level prefix control-string)
-                       format-arguments)))))
+                    (position *debug-level* *debug-levels*)))
+        (apply (function forced-format) *trace-output*
+               (conc-level-prefix-and-control-string level prefix control-string)
+               format-arguments))))
 
 (defun forced-format (destination control-string &rest format-arguments)
   "just a normal format function that forces output"

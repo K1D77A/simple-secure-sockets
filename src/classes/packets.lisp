@@ -90,8 +90,7 @@
 (defmethod print-object ((object data-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (print-packet-superclass stream object)
-    (format stream "Sender: ~s~%Recipient: ~s~%Length: ~s~%Data: ~s~%"
-            (sender* object)
+    (format stream "Recipient: ~s~%Length: ~s~%Data: ~s~%"
             (recipient* object)
             (d-len* object)           
             (data* object))))
@@ -130,8 +129,9 @@
   (when (closer-mop:subclassp  (find-class (type-of packet))
                                (find-class 'packet))
     (print-unreadable-object (packet stream)
-      (format stream "~%Header: ~s~%Recipient: ~s~%OP: ~s~%Footer: ~s~%"
+      (format stream "~%Header: ~s~%Sender: ~s~%Recipient: ~s~%OP: ~s~%Footer: ~s~%"
               (header* packet)
+              (sender* packet)
               (recipient* packet)
               (op* packet)
               (footer* packet))))

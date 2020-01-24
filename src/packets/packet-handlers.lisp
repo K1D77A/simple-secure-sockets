@@ -26,10 +26,14 @@ SERVER handlers
          (connection-obj (get-current-connections-cons obj sender))
          (connection (car connection-obj))
          (thread (cdr connection-obj)))
-    (shutdown connection nil);;kill the connection
+    (safe-socket-close (c-socket connection))
     (stop-thread thread);;stop the thread that is downloading the packets
-    (update-all-clients-with-disconnected-clients obj connection) ;;tell all the connected clients
+    (ignore-errors (update-all-clients-with-disconnected-clients obj connection))
+    ;;tell all the connected clients
     ;;that this client has disconnected
+    ;;can ignore the errors because there might be an end of file error, this will happen if
+    ;;clients have shutdown their connection while the server is trying to inform them that someone
+    ;;has disconnected.
     (remhash sender (current-connections obj))));;remove the connection from the hash table
     
 

@@ -54,10 +54,10 @@
       (f-format :info :client-start  "connected properly")
       (setf (packet-download-thread client)
             (make-thread (lambda () (packet-download-function client))
-                         :name (format nil "[CLIENT]:~A-packet-download" name)))
+                         :name (format nil "[~A]:packet-download" name)))
       (setf (packet-processor-function client)
             (make-thread (lambda () (handle-packets-on-queue client))
-                         :name (format nil "[CLIENT]:~A-packet-process" name))))
+                         :name (format nil "[~A]:packet-process" name))))
     (f-format :debug :client-start "returning client")
     client))
 

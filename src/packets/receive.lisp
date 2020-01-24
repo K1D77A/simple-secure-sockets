@@ -4,13 +4,14 @@
 
 (defun read-n-bytes (n stream)
   "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
+  (declare (optimize (speed 3)(safety 0)))
   (let ((data (make-array n :element-type '(unsigned-byte 8))))
     (dotimes (i n data)
       (setf (aref data i) (read-byte stream t)))))
 
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
-  ;; (declare (optimize (speed 3) (safety 0)))
+  ;;(declare (optimize (speed 3) (safety 0)))
   (handler-case (let ((packet (make-instance 'packet)))
                   (read-header obj packet)
                   (read-recipient obj packet)
