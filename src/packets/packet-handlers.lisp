@@ -21,6 +21,17 @@ SERVER handlers
   :NOT-IMPLEMENTED)
 (defmethod handle-packet :before ((obj server)(packet data-packet))
   (f-format :debug :packet-write "sending: ~s~%" packet))
+(defmethod handle-packet ((obj server) (packet kill-packet))
+  (let* ((sender (sender* packet))
+         (connection-obj (get-current-connections-cons obj sender))
+         (connection (car connection-obj))
+         (thread (cdr connection-obj)))
+    (shutdown connection nil);;kill the connection
+    (stop-thread thread);;stop the thread that is downloading the packets
+    (update-all-clients-with-disconnected-clients obj connection) ;;tell all the connected clients
+    ;;that this client has disconnected
+    (remhash sender (current-connections obj))));;remove the connection from the hash table
+    
 
 #|
 
@@ -53,7 +64,7 @@ CLIENT handlers
   (push-to-queue packet (list (packet-queue obj))))
 
 (defmethod handle-packet ((obj client)(packet kill-packet))
-  (shutdown obj))
+  (shutdown obj nil))
 
 (defmethod handle-packet ((obj client)(packet clients-packet))
   "if the client is connected it adds it to the list in the slot 'available-clients, if it is not then the client is removed from the list."
@@ -64,7 +75,8 @@ CLIENT handlers
            (setf (available-clients obj)
                  (remove name (available-clients obj) :test #'string=)))
           ((string= con "1")
-           (push name (available-clients obj)))
+           (unless (member name (available-clients obj) :test #'string=)
+             (push name (available-clients obj))))
           (t (broken-packet-error
               "The value of the connected? slot in packet is neither  0 or 1"
               packet)))))

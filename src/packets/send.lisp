@@ -2,12 +2,14 @@
 (defun build-packet (recipient op)
   "takes in a recipient and creates an instance of packet"
   (let ((rec-vecced (vectorize-data recipient %connection-name-len))
+        ;;(sender-vecced (vectorize-data sender %connection-name-len))
         (op-vecced (vectorize-data op))
         (foot-vecced (vectorize-data %stop-footer))
         (head-vecced (vectorize-data %start-header)))
     (unless (n-or-lessp %connection-name-len rec-vecced)
       (error "recipient does not satisfy predicate n-or-lessp. Recipient: ~A~%Length: ~A" recipient (length recipient)))
     (make-instance 'packet
+                   ;;:sender sender-vecced
                    :recipient rec-vecced
                    :op op-vecced
                    :footer foot-vecced
@@ -29,9 +31,8 @@
       (setf (id packet) id-vecced)
       packet)))
 
-(defun build-data-packet (sender recipient data)
+(defun build-data-packet (recipient data)
   (let* ((packet (build-packet recipient %op-data))
-         (sender-vecced (vectorize-data sender %connection-name-len))
          (d-vecced (vectorize-data data))
          (len (length d-vecced)))
     (unless (<= len  %max-data-size)
@@ -39,7 +40,7 @@
     (change-class packet 'data-packet)
     (setf (d-len packet) (make-array 1 :element-type '(unsigned-byte 8) :initial-element len))
     (setf (data packet) d-vecced)
-    (setf (sender packet) sender-vecced)
+    ;;   (setf (sender packet) sender-vecced)
     packet))
 (defun build-clients-packet (client-name connected?)
   (if (or (= connected? 1)
@@ -61,7 +62,11 @@
 ;;             (connection-name connection)
 ;;             (type-of packet)
 ;;             (recipient packet)))
+(defmethod add-sender ((connection connection) (packet packet))
+  (let ((sender-vecced (vectorize-data (connection-name connection) %connection-name-len)))
+    (setf (sender packet) sender-vecced)))
 (defmethod send (connection (packet data-packet))
+  (add-sender connection packet)
   (with-accessors ((recipient recipient)
                    (data data)
                    (len d-len)
@@ -72,60 +77,67 @@
       packet
     (force-write-sequence 
      (concatenate '(vector (unsigned-byte 8))
-                  header recipient op sender len data footer)
+                  header recipient sender op len data footer)
      (c-stream connection))))
 
 (defmethod send (connection (packet kill-packet))
+  (add-sender connection packet)
   (with-accessors ((recipient recipient)
                    (header header)
                    (footer footer)
+                   (sender sender)
                    (op op))
       packet
     (force-write-sequence 
      (concatenate '(vector (unsigned-byte 8))
-                  header recipient op footer)
+                  header recipient sender op footer)
      (c-stream connection))))
 
 (defmethod send (connection (packet identify-packet))
+  (add-sender connection packet)
   (with-accessors ((recipient recipient)
                    (header header)
                    (id id)
+                   (sender sender)
                    (footer footer)
                    (op op))
       packet
     (force-write-sequence 
      (concatenate '(vector (unsigned-byte 8))
-                  header recipient op id footer)
+                  header recipient sender op id footer)
      (c-stream connection))))
 
 (defmethod send (connection (packet ack-packet))
+  (add-sender connection packet)
   (with-accessors ((recipient recipient)
                    (header header)
                    (footer footer)
+                   (sender sender)
                    (op op))
       packet
     (force-write-sequence 
      (concatenate '(vector (unsigned-byte 8))
-                  header recipient op footer)
+                  header recipient sender op footer)
      (c-stream connection))))
 (defmethod send (connection (packet clients-packet))
+  (add-sender connection packet)
   (with-accessors ((recipient recipient)
                    (header header)
                    (footer footer)
+                   (sender sender)
                    (op op)
                    (client-name client-name)
                    (connected? connected?))
       packet
     (force-write-sequence 
      (concatenate '(vector (unsigned-byte 8))
-                  header recipient op client-name connected? footer)
+                  header recipient sender op client-name connected? footer)
      (c-stream connection))))
 
 (defmethod send-data-packet ((obj client) recipient data)
   (let ((clients (available-clients obj)))
     (when (member recipient clients :test #'string=)
-      (let ((packet (build-data-packet (connection-name obj)
-                                       recipient
+      (let ((packet (build-data-packet recipient
                                        data)))
         (send obj packet)
         t))
@@ -140,10 +152,29 @@
              ;;don't need val because the connection name is the same as key
              (send connection (build-clients-packet key 1)))
            (current-connections obj)))
-(defmethod update-all-clients-with-connected-client ((obj server) connection)
+(defmethod update-all-clients-with-all-connected ((obj server))
+  (maphash (lambda (key val)
+             (declare (ignore key))
+             (let ((con (car val)))
+               (maphash (lambda (key2 val2)
+                          (declare (ignore val2))
+                          (unless (string= (connection-name con)
+                                           key2)
+                            (send con (build-clients-packet key2 1))))
+                        (current-connections obj))))
+           (current-connections obj)))
+
+                        ;;map over the connections, then send all 
+                        
+(defun update-all-clients-with-connected?-client (server connection connectedp)
   (maphash (lambda (key val)
              (declare (ignore key))
              (let ((current-con (car val)))
                (unless (string= (connection-name current-con) (connection-name connection))
-                 (send current-con (build-clients-packet (connection-name connection) 1)))))
-           (current-connections obj)))
+                 (send current-con (build-clients-packet (connection-name connection)
+                                                         (if connectedp 1 0))))))
+           (current-connections server)))
+(defmethod update-all-clients-with-connected-client ((obj server) connection)
+  (update-all-clients-with-connected?-client obj connection t))
+(defmethod update-all-clients-with-disconnected-client ((obj server) connection)
+  (update-all-clients-with-connected?-client obj connection nil))

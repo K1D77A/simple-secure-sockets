@@ -27,9 +27,14 @@
       (error "name is not a unique name")))
 (defun stop-client (name)
   (let ((client (gethash name *current-clients*)))
-    (shutdown client)
+    (shutdown client t)
     (remhash client *current-clients*)))
-
+(defun stop-all-clients ()
+  (maphash (lambda (key val)
+             (declare (ignore key))
+             (shutdown val))
+           *current-clients*)
+  (setf *current-clients* (make-hash-table :test #'equal)))
 
 
 
@@ -93,20 +98,29 @@
             :NOT-CONNECTED)))))
 ;      :NOT-CONNECTED))))
 
-(defmethod shutdown :before ((obj client))
+(defmethod shutdown :before ((obj client) &optional send-killp)
+  (declare (ignore send-killp))
   (f-format :info :client-stop  "Attempting to shutdown client connection to ~s" (ip obj)))
-(defmethod shutdown :after ((obj client))
+(defmethod shutdown :after ((obj client) &optional send-killp)
+  (declare (ignore send-killp))
   (f-format :info :client-stop  "Shutdown complete"))
-(defmethod shutdown ((obj client))
+(defun shutdown-client (client &optional (send-killp nil))
   "shuts down the connection on server"
   (ignore-errors
-   (stop-thread (packet-processor-function obj))
-   (stop-thread (packet-download-thread obj))
-   
+   (stop-thread (packet-processor-function client))
+   (stop-thread (packet-download-thread client))
+   (when send-killp
+     (send client (build-kill-packet)))
    ;;need to send a kill packet
-   (safe-socket-close (c-socket obj));;this throws and end of file for some reason.
-   (remhash (connection-name obj) *current-clients*)))
+   (safe-socket-close (c-socket client));;this throws and end of file for some reason.
+   (remhash (connection-name client) *current-clients*)))
 
+(defmethod shutdown ((obj client) &optional  (send-killp t))
+  "shuts down the connection on server"
+  (shutdown-client obj send-killp))
+(defmethod shutdown ((obj client) &optional  (send-killp nil))
+  "shuts down the connection on server"
+  (shutdown-client obj send-killp))
 
 
 

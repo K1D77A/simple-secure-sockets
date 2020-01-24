@@ -14,6 +14,7 @@
   (handler-case (let ((packet (make-instance 'packet)))
                   (read-header obj packet)
                   (read-recipient obj packet)
+                  (read-sender obj packet)
                   (read-op obj packet)
                   (handle-op obj packet)
                   (read-footer obj packet)
@@ -37,6 +38,13 @@
   (setf (recipient packet)
         (read-n-bytes
          %connection-name-len (c-stream obj))))
+(defmethod read-sender :before ((obj connection)(packet packet))
+  (f-format :debug :packet-read  "-Reading sender"))
+(defmethod read-sender :after ((obj connection)(packet packet))
+  (f-format :debug :packet-read  "-sender read: ~A "(sender* packet)))
+(defmethod read-sender ((obj connection) (packet packet))
+  (let ((sender (read-n-bytes %connection-name-len (c-stream obj))))
+    (setf (sender packet) sender)))
 
 (defmethod read-op :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "--Reading op"))
@@ -57,7 +65,7 @@
            (change-class packet 'identify-packet))
           ((string= %op-clients op-as-string)
            (change-class packet 'clients-packet))
-          (t (f-format :error :packet-read "Packet taken in is not a valid packet ~A" packet)))))
+          (t (broken-packet-error "Packet received is invalid." packet)))))
 ;;when packet is wrong it needs to be dropped, this needs to be written
 
 
@@ -75,11 +83,10 @@
   "Thisn here handles the op code 'd' by downloading the correct amount of data and placing it in the 
 correct place in the packet"
   (let* ((stream (c-stream obj))
-         (sender (read-n-bytes %connection-name-len stream));;op then sender then data
+         ;;op then sender then data
          (len (read-byte stream))
          (data (read-n-bytes len stream)))
     (setf (d-len packet) (make-array 1 :element-type '(unsigned-byte 8) :initial-element len)
-          (sender packet) sender
           (data packet) data)))
 (defmethod handle-op ((obj connection)(packet clients-packet))
   (let* ((stream (c-stream obj))

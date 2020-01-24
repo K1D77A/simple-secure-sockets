@@ -84,9 +84,7 @@
                                         ; (f-format t "SENDING ACK TO CLIENT~%")
                 (send current-connection (build-ack-packet))
                 ;;(send-all-connected-clients obj current-connection)
-                (update-all-clients-with-connected-client obj current-connection))
- ;;;can't dispatch on connections currently... connection dont have packet-processor-functions or  ;;;processor names
-              
+                (update-all-clients-with-all-connected obj))
               (let ((type (type-of identify-packet)))
                 (f-format :error :server-receive
                           "packet was not of type identify-packet: ~A" type)
@@ -98,23 +96,36 @@ the only packet that is not exclusively between a client and the server is the d
 we need is
 |#
 
-(defmethod shutdown ((obj connection))
+(defmethod shutdown ((obj connection) &optional (send-killp t))
   "shuts down the connection on server"
+  (declare (ignore send-killp))
+  ;; (print-object obj t)
+  ;;(find-and-kill-thread (processor-name obj))
+  (send obj (build-kill-packet))
+  (safe-socket-close (c-socket obj)))
+(defmethod shutdown ((obj connection) &optional (send-killp nil))
+  "shuts down the connection on server"
+  (declare (ignore send-killp))
   ;; (print-object obj t)
   ;;(find-and-kill-thread (processor-name obj))
   (safe-socket-close (c-socket obj)))
-(defmethod shutdown :before ((obj server))
+
+
+(defmethod shutdown :before ((obj server) &optional send-killp)
+  (declare (ignore send-killp))
   (f-format :info :server-stop "Attempting to shutdown server"))
-(defmethod shutdown :after ((obj server))
+(defmethod shutdown :after ((obj server) &optional send-killp)
+  (declare (ignore send-killp))
   (f-format :info :server-stop "Shutdown complete~%"))
-(defmethod shutdown ((obj server))
+;;;there is no instance where you don't want to send kill if you are the server..
+(defmethod shutdown ((obj server) &optional send-killp)
   "shuts down all the connections that the server is managing"
+  (declare (ignore send-killp))
   (let ((table (current-connections obj)))
     (maphash (lambda (key val)
                (let ((con (car val))
                      (thread (cdr val)))
-                 (send con (build-kill-packet))
-                 (shutdown con)
+                 (ignore-errors (shutdown con t))
                  (stop-thread thread)
                  ;;need to map the ppf hash and kill each thread manually
                  (remhash key table)))

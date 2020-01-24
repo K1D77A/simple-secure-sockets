@@ -8,6 +8,10 @@
     :accessor recipient
     :initarg :recipient
     :initform :recipient-not-set)
+   (sender
+    :accessor sender
+    :initarg :sender
+    :initform :sender-not-set)
    (header
     :accessor header
     :initarg :header
@@ -38,10 +42,7 @@
     :initform :data-length-not-set)
    (data
     :accessor data
-    :initform :data-not-set)
-   (sender
-    :accessor sender
-    :initform :sender-not-set)))
+    :initform :data-not-set)))
 (defmethod d-len* (object)
   "d-len is supposed to be an actual number, so this handles converting from a byte array to an int"
   (let ((len (slot-value object 'data-length)))
