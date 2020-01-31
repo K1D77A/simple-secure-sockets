@@ -30,7 +30,6 @@
                               (make-thread (lambda ()
                                              (handle-packets-on-queue server))
                                            :name p-p-f-n))))
-      ;;currently we don't do nuffin with the packets we receive
       (serious-condition (c) (progn (format t "Server error: ~s~%" c)
                                     (shutdown server)
                                     server)))
@@ -80,7 +79,7 @@
                 (send current-connection (build-ack-packet))
                 ;;(send-all-connected-clients obj current-connection)
                 (update-all-clients-with-all-connected obj))
-              (let ((type (type-of identify-packet)))
+              (let ((type (type-of identify-packet))) 
                 (f-format :error :server-receive
                           "packet was not of type identify-packet: ~A" type)
                 (f-format :error :server-receive  "breaking connection")

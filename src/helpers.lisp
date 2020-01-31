@@ -22,7 +22,7 @@
       (setf *debug-level* level)
       (error 'type-error :datum level :expected-type *debug-levels*)))
 (defun conc-level-prefix-and-control-string (level prefix control-string)
-  (concatenate 'string (format nil "[~s][~s]" level prefix) control-string "~%"))
+  (concatenate 'string (format nil "~&[~s][~s]" level prefix) control-string "~%"))
 (defun f-format (level prefix  control-string &rest format-arguments)
   (unless (valid-prefix-p prefix)
     (error "Invalid prefix: ~S" prefix))
@@ -93,7 +93,7 @@
          (arr (make-array (or set-length (length as-string))
                           :element-type '(unsigned-byte 8))))
     (declare (string as-string))
-    (the simple-array (map-into arr #'char-code as-string))))
+    (the byte-array (map-into arr #'char-code as-string))))
 
 (defun string-to-keyword (string)
   (intern string :keyword))

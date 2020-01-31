@@ -62,6 +62,7 @@
     client))
 
 (defmethod handle-packets-on-queue ((obj client))
+  (declare (optimize (speed 3)(safety 0)))
   (let ((queue (packet-queue obj)))
     (loop :do
       (handle-packet obj

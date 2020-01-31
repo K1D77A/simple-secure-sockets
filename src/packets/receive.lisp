@@ -1,17 +1,20 @@
 ;;;;this file contains many of the methods required for receiving packets from a connection and ;;;;processing them
 (in-package :simple-secure-sockets)
-
+(declaim (optimize (speed 3) (safety 0)))
 
 (defun read-n-bytes (n stream)
   "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
   (declare (optimize (speed 3)(safety 0)))
-  (let ((data (make-array n :element-type '(unsigned-byte 8))))
+  (let ((data (the byte-array (make-array n :element-type 'u-byte))))
+    (declare (type byte-array data))
     (dotimes (i n data)
-      (setf (aref data i) (read-byte stream t)))))
+      (declare (type fixnum i)
+               (type fixnum n))
+      (setf (aref data i) (the u-byte (read-byte stream t))))))
 
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
-  ;;(declare (optimize (speed 3) (safety 0)))
+  (declare (optimize (speed 3) (safety 0)))
   (handler-case (let ((packet (make-instance 'packet)))
                   (read-header obj packet)
                   (read-recipient obj packet)
@@ -29,22 +32,22 @@
   (f-format :debug :packet-read  "-Header read"))
 (defmethod read-header ((obj connection) (packet packet))
   (setf (header packet)
-        (read-n-bytes
-         (length %start-header) (c-stream obj))))
+        (the byte-array (read-n-bytes
+                         (length %start-header) (c-stream obj)))))
 (defmethod read-recipient :before ((obj connection) (packet packet))
   (f-format :debug :packet-read  "-Reading recipient "(get-universal-time)))
 (defmethod read-recipient :after ((obj connection) (packet packet))
   (f-format :debug :packet-read  "-Recipient read. Recipient: ~A" (recipient* packet)))
 (defmethod read-recipient ((obj connection) (packet packet))
   (setf (recipient packet)
-        (read-n-bytes
-         %connection-name-len (c-stream obj))))
+        (the byte-array (read-n-bytes
+                         %connection-name-len (c-stream obj)))))
 (defmethod read-sender :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "-Reading sender"))
 (defmethod read-sender :after ((obj connection)(packet packet))
   (f-format :debug :packet-read  "-sender read: ~A "(sender* packet)))
 (defmethod read-sender ((obj connection) (packet packet))
-  (let ((sender (read-n-bytes %connection-name-len (c-stream obj))))
+  (let ((sender (the byte-array (read-n-bytes %connection-name-len (c-stream obj)))))
     (setf (sender packet) sender)))
 
 (defmethod read-op :before ((obj connection)(packet packet))
@@ -52,7 +55,7 @@
 (defmethod read-op :after ((obj connection)(packet packet))
   (f-format :debug :packet-read  "--OP read. OP: ~A" (op* packet)))
 (defmethod read-op ((obj connection)(packet packet))
-  (let* ((op (read-n-bytes 1 (c-stream obj)))
+  (let* ((op (the single-byte (read-n-bytes 1 (c-stream obj))))
          (op-as-string (c2s-c (code-char (aref op 0)))))
     (setf (op packet) op)
     ;;(print-object packet t)
@@ -85,21 +88,21 @@
 correct place in the packet"
   (let* ((stream (c-stream obj))
          ;;op then sender then data
-         (len (read-byte stream))
-         (data (read-n-bytes len stream)))
-    (setf (d-len packet) (make-array 1 :element-type '(unsigned-byte 8) :initial-element len)
+         (len (the u-byte (read-byte stream)))
+         (data (the byte-array (read-n-bytes len stream))))
+    (setf (d-len packet) (the single-byte
+                              (make-array 1 :element-type 'u-byte :initial-element len))
           (data packet) data)))
 (defmethod handle-op ((obj connection)(packet clients-packet))
   (let* ((stream (c-stream obj))
-         (client (read-n-bytes %connection-name-len stream))
-         (connected (read-byte stream)))
+         (client (the byte-array (read-n-bytes %connection-name-len stream)))
+         (connected (the single-byte (read-n-bytes 1 stream))))
     (setf (client-name packet) client
-          (connected? packet) (make-array 1 :element-type '(unsigned-byte 8)
-                                            :initial-element connected))))
+          (connected? packet) connected)))
 
 (defmethod handle-op ((obj connection) (packet identify-packet))
   (setf (id packet)
-        (read-n-bytes %connection-name-len (c-stream obj))))
+        (the byte-array (read-n-bytes %connection-name-len (c-stream obj)))))
 
 
 (defmethod read-footer :before ((obj connection)(packet packet))
@@ -109,7 +112,7 @@ correct place in the packet"
   (f-format :debug :packet-read  "Packet End!"))
 (defmethod read-footer ((obj connection)(packet packet))
   (setf (footer packet)
-        (read-n-bytes (length %stop-footer) (c-stream obj))))
+        (the byte-array (read-n-bytes (length %stop-footer) (c-stream obj)))))
 
 
 ;;;;gonna change the send to a generic function that accepts the packet types as

@@ -27,4 +27,6 @@
 (defvar-hash %clients-recipient "herearenewclient")
 (defvar-hash %max-data-size 255);1byte len
 
-
+(deftype byte-array () '(simple-array (unsigned-byte 8) (*)))
+(deftype single-byte () '(simple-array (unsigned-byte 8) (1)))
+(deftype u-byte () '(integer 0 255))
