@@ -54,15 +54,16 @@
       (f-format :info :client-start  "connected properly")
       (setf (packet-download-thread client)
             (make-thread (lambda () (packet-download-function client))
-                         :name (format nil "[~A]:packet-download" name)))
-      (setf (packet-processor-function client)
+                         :name (format nil "[~A]:packet-download" name))
+            (packet-processor-function client)
             (make-thread (lambda () (handle-packets-on-queue client))
-                         :name (format nil "[~A]:packet-process" name))))
+                         :name (format nil "[~A]:packet-process" name))
+            (connectedp client) t))
     (f-format :debug :client-start "returning client")
     client))
 
 (defmethod handle-packets-on-queue ((obj client))
-  (declare (optimize (speed 3)(safety 0)))
+  ;; (declare (optimize (speed 3)(safety 0)))
   (let ((queue (packet-queue obj)))
     (loop :do
       (handle-packet obj
@@ -110,6 +111,7 @@
   (ignore-errors
    (stop-thread (packet-processor-function client))
    (stop-thread (packet-download-thread client))
+   (setf (connectedp client) nil)
    (when send-killp
      (send client (build-kill-packet)))
    ;;need to send a kill packet

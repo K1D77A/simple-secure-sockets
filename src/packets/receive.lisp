@@ -1,10 +1,10 @@
 ;;;;this file contains many of the methods required for receiving packets from a connection and ;;;;processing them
 (in-package :simple-secure-sockets)
-(declaim (optimize (speed 3) (safety 0)))
+;;(declaim (optimize (speed 3) (safety 0)))
 
 (defun read-n-bytes (n stream)
   "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
-  (declare (optimize (speed 3)(safety 0)))
+  ;; (declare (optimize (speed 3)(safety 0)))
   (let ((data (the byte-array (make-array n :element-type 'u-byte))))
     (declare (type byte-array data))
     (dotimes (i n data)
@@ -14,7 +14,7 @@
 
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
-  (declare (optimize (speed 3) (safety 0)))
+  ;; (declare (optimize (speed 3) (safety 0)))
   (handler-case (let ((packet (make-instance 'packet)))
                   (read-header obj packet)
                   (read-recipient obj packet)
@@ -23,7 +23,12 @@
                   (handle-op obj packet)
                   (read-footer obj packet)
                   packet)
-    (end-of-file () :EOF))); if the stream is broken return :EOF
+    (SB-INT:SIMPLE-STREAM-ERROR (c)
+      (write-error c)
+      :EOF)
+    (end-of-file (c)
+      (write-error c)
+      :EOF))); if the stream is broken return :EOF
 
 (defmethod read-header :before ((obj connection) (packet packet))
   (f-format :debug :packet-read  "New packet start~s" (get-universal-time))
@@ -49,6 +54,7 @@
 (defmethod read-sender ((obj connection) (packet packet))
   (let ((sender (the byte-array (read-n-bytes %connection-name-len (c-stream obj)))))
     (setf (sender packet) sender)))
+
 
 (defmethod read-op :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "--Reading op"))

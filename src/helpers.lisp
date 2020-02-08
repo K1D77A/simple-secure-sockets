@@ -8,6 +8,7 @@
 (defparameter *valid-format-prefixes*
   (list :testing
         :packet-read :packet-write
+        :packet-forward
         :server-start :server-stop
         :client-start :client-stop
         :client-receive
@@ -175,38 +176,10 @@
   (funcall clean-func (convert-to-string seq)))
 (defun c2s-c (seq &optional (clean-func #'remove-trailing-nulls))
   (convert-to-string-and-clean seq clean-func))
-;; (defmacro with-func-applied-to-accessors (func accessors object &body body)
-;;   `(with-accessors ,accessors ,object
-;;      (let (mapcar (lambda (acc)
-;;                     (let ((obj (first ,acc)))
-;;                       (funcall ,func ,acc)))
-;;                   ,accessors)
-;;        ,@body)))
-;; (with-accessors ((op op)
-;;                  (reader reader))
-;;     (make-instance 'packet)
-;;   (let ((op (remove-trailing-nulls (convert-to-string op)))
-;;         (reader (remove-trailing-nulls (convert-to-string reader))))
-;;     body))
 
-;; <aeth> Josh_2: for one (with more, consider using alexandria) you'd want
-;; something like this: (let ((g (gensym))) `(flet ((,g ...) ((setf ,g)
-;;                                                               ...)) (with-accessors ((,name ,g)) ,thing-being-accessed ,@body)))
-;; *** ahungry (~user@99-40-9-245.lightspeed.livnmi.sbcglobal.net) has quit:
-;; Remote host closed the connection  [03:37]
-;; <aeth> and now you can control what's being set/read by the accessor in
-;; with-accessors by controlling the ...
-;; <aeth> notice how with-accessors needs to be in the inner scope
-;; <aeth> and actually, if you use with-accessors instead of symbol-macrolet you
-;; know more (the getter can only have one argument and the setter two)
-;; and can say something like (flet ((,g (object) ...) ((setf ,g)
-;;                                                         (new-value object) ...)) ...)  [03:39]
-;; <aeth> (whether or not those need gensyms and ,s depends on your specific
-;;                 design of their function bodies)  [03:40]
-;; *** ahungry (~user@99-40-9-245.lightspeed.livnmi.sbcglobal.net) has joined
-;; channel #lisp  [03:41]
-;; <aeth> As a rule of thumb, if the user has access to a function body, you need
-;; gensyms, and otherwise you don't... so you need to gensym the function
-;; g because it's in the scope of ,@body -- which is user provided -- but
-;; you might not necessarily need gensyms within the flet bodies
-;; <aeth> s/a function body/a body/
+(defun write-to-file (file string)
+  (with-open-file (stream file :direction :output :if-exists :append :if-does-not-exist :create)
+    (format stream "~s~%" string)
+    (force-output stream)))
+(defun write-error (error)
+  (write-to-file "errors" error))

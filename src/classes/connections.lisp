@@ -18,8 +18,15 @@
     :initform :socket-not-set)
    (stream
     :accessor c-stream
-    :initform :stream-not-set)))
+    :initform :stream-not-set)
+   (connectedp
+    :accessor connectedp
+    :initform nil)))
 
+(defclass con-to-server (connection)
+  ((queue
+    :accessor queue
+    :initform :queue-not-set)))
 
 (defclass client (connection)
   ((available-clients
@@ -61,19 +68,26 @@
    (current-connections
     :accessor current-connections
     :initform (make-hash-table :test #'equal))
+   (current-connections-array
+    :accessor current-connections-array
+    :initform (make-array 0  :adjustable t :element-type 'connection :fill-pointer 0))
    (receive-connections-function
     :accessor receive-connections-function
     :initform :connections-function-not-set)
-   (packet-queue
-    :accessor packet-queue
-    :type lparallel.cons-queue:cons-queue
-    :initform (lparallel.queue:make-queue))
+   (packet-queues
+    :accessor packet-queues
+    :initform :queues-not-set
+    :initarg :queues)
    (process-packets-function
     :accessor process-packets-function
-    :initform :Process-packets-function-not-set)
+    :initform :process-packets-function-not-set)
+   (download-from-connections-thread
+    :accessor download-from-connections-thread
+    :initform :download-from-connections-thread-not-set)
    (current-listening-socket
     :accessor current-listening-socket
     :initform :current-listening-socket-not-set))
+  
   ;;might at some point need a mutex here, however nothing modified this simultaneously, the
   ;;thread that modifies is killed before another thread attempts to alter it
   (:documentation "Class that manages the server"))
@@ -86,7 +100,7 @@
     (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Packet queue: ~A~%Process packets function: ~A~%Current-connections: ~%"
             (name object)
             (receive-connections-function object)
-            (packet-queue object)
+            (packet-queues object)
             (process-packets-function object))
     (maphash (lambda (key val)
                (declare (ignore key))
@@ -109,9 +123,10 @@
 
 (defmethod print-object ((object connection) stream)
   (print-unreadable-object (object stream :type t :identity t)    
-    (format stream "~%Name: ~A~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%"
+    (format stream "~%Name: ~A~%Address: ~A:~A~%Socket: ~A~%Stream: ~A~%Connectedp: ~A~%"
             (connection-name object)
             (ip object)
             (port object)
             (c-socket object)
-            (c-stream object))))
+            (c-stream object)
+            (connectedp object))))

@@ -9,26 +9,28 @@ SERVER handlers
 
 
 |#
+(defmethod handle-packet :before ((obj server)(packet data-packet))
+  (f-format :debug :packet-forward "sending: ~s~%" packet))
 (defmethod handle-packet ((obj server)(packet data-packet))
   "Takes in a server object and a data-packet and then with this, will forward the packet it has received to the correct connection. if client doesn't exist currently, just drop the packet (currently)"
   (let* ((recipient (recipient* packet))
          ;;recipient in the packet is a binary array so needs to be converted to a string
-         (connection (get-current-connections-object obj recipient)))
+         (connection (get-current-connection-by-name obj recipient)))
     (when recipient;;currently just drops packet if can't find the recipient in the
       ;;current connections hash-table
-      (send connection packet))))
+      (forward connection packet))))
+(defun forward (connection packet)
+  (send connection packet))
 (defmethod handle-packet ((obj server) packet)
+  (forced-format t "Not implemented~%")
   :NOT-IMPLEMENTED)
-(defmethod handle-packet :before ((obj server)(packet data-packet))
-  (f-format :debug :packet-write "sending: ~s~%" packet))
+
 (defmethod handle-packet ((obj server) (packet kill-packet))
   (let* ((sender (sender* packet))
-         (connection-obj (get-current-connections-cons obj sender))
-         (connection (car connection-obj))
-         (thread (cdr connection-obj)))
-    (safe-socket-close (c-socket connection))
-    (stop-thread thread);;stop the thread that is downloading the packets
-    (ignore-errors (update-all-clients-with-disconnected-clients obj connection))
+         (connection (get-current-connection-by-name obj sender))
+         (connection connection))
+    (shutdown connection)    
+    (ignore-errors (update-all-clients-with-disconnected-client obj connection))
     ;;tell all the connected clients
     ;;that this client has disconnected
     ;;can ignore the errors because there might be an end of file error, this will happen if
