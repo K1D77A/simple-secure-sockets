@@ -104,7 +104,7 @@
             (process-packets-function object))
     (maphash (lambda (key val)
                (declare (ignore key))
-               (format stream "~A~%" val))
+               (format stream "~A~%" (connection-name val)))
              (current-connections object))))
 
 (defmethod print-object ((object client) stream)
@@ -113,7 +113,7 @@
             (connection-name object)
             (ip object)
             (port object)
-            (available-clients object)
+            (format nil "(~A) ..." (first (available-clients object)))
             (c-socket object)
             (c-stream object)
             (data-packet-queues object)

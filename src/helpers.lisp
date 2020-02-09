@@ -183,3 +183,9 @@
     (force-output stream)))
 (defun write-error (error)
   (write-to-file "errors" error))
+
+(defmacro while-finally-loop (condition do-finally (&body body))
+  "A while loop with a finally clause to produce a final return value when finished"
+  `(loop :while ,condition
+         :do (progn ,@body)
+         :finally (progn ,@do-finally)))

@@ -12,7 +12,18 @@
   (let ((server (gethash name *current-servers*)))
     (shutdown server)
     (remhash name *current-servers*)))
-
+(defmethod done-processing-p ((obj server))
+  "checks if all the queues are empty."
+  (let ((queues (packet-queues obj)))
+    (every #'lparallel.queue:queue-empty-p queues)))
+(defmethod all-connection-streams-empty-p ((server server))
+  (let ((connections (current-connections-array server)))
+    (every (lambda (con)
+             (let ((stream (c-stream con)))
+               (if (open-stream-p stream)
+                   (not (listen stream))
+                   nil)))
+           connections)))
 
 (defun make-server (name listen-ip &optional (listen-port 55555) (thread-count 5) (queues 5))
   (declare (ignore thread-count))
@@ -25,8 +36,7 @@
                   :collect (lparallel.queue:make-queue)))
          (server (make-instance 'server :ip listen-ip :port listen-port
                                         :name name :queues q)))
-    (handler-case (let ((r-c-f-n (format nil "[~A]:receive" name))
-                        (p-p-f-n (format nil "[~A]:packet-process" name))
+    (handler-case (let ((r-c-f-n (format nil "[~A]:receive" name))                        
                         (d-f-c-t (format nil "[~A]:download-from-connections-thread" name)))
                     (if (equal (set-server-socket server) :ADDRESS-IN-USE)
                         (shutdown server)
@@ -34,15 +44,7 @@
                               (make-thread (lambda ()
                                              (accept-connections server))
                                            :name r-c-f-n)
-                              (process-packets-function server)
-                              ;;we always have the same number of processing threads for every
-                              ;;queue we have
-                              (loop :for x :from 1 :to (list-length (packet-queues server))
-                                    :for q :in (packet-queues server)
-                                    :do (forced-format t "~s~%" q)
-                                    :collect (make-thread (lambda ()
-                                                            (handle-packets-in-queue server q))
-                                                          :name (format nil "~A~d" p-p-f-n x)))
+                              (process-packets-function server) (start-queue-threads server)
                               (download-from-connections-thread server)
                               (make-thread (lambda ()
                                              (process-connections server))
@@ -52,40 +54,52 @@
                                     (shutdown server)
                                     server)))
     server))
+(defmethod start-queue-threads ((obj server))
+  "starts up a thread for each queue and returns a list of all those threads"
+  (let ((x 0)
+        (lst nil))
+    (dolist (i (packet-queues obj) lst)
+      (push (make-thread (lambda ()
+                           (handle-packets-in-queue obj i))
+                         :name (format nil "[~A]:packet-process~d" (name obj) x))
+            lst)
+      (incf x))))
+(defparameter *moved-packets* (cons 0 nil))
+(defmethod push-to-packet-queue ((obj server)(connection con-to-server) (packet packet))
+  (declare (ignore obj))
+  (let ((q (queue connection)))
+    (sb-ext:atomic-incf (car *moved-packets*))
+    (lparallel.queue:push-queue packet q)))
 
-(defmethod push-to-queue ((packet packet) queue)
-  "pushes all the packets received to the queue that is supplied as the first argument in the list args-in-a-list"
-  ;;for some reason queue is a list...
-  (forced-format t "pushing type: ~A to queue~%" (type-of packet))
-  (lparallel.queue:push-queue packet (if (listp queue)
-                                         (first queue)
-                                         queue)))
+
+
 
 (defmethod download-push-to-queue ((obj server)(connection con-to-server))
-  "Downloads packets from connection and then pushes them onto the servers queue. If the download-sequence returns :EOF then the thread will nicely return :DONE"
-  (loop :for packet := (download-sequence connection) :then (download-sequence connection)
-        :if (equal packet :EOF)
-          :do  (return :DONE)
-               ;;          :do (forced-format t "~&EOF Rec~%")
-        :else
-          :do (push-to-queue packet (queue connection))))
+  "Downloads all the packets available on a connection until (listen (c-stream connection)) 
+returns nil and pushes them onto the queue associated with connection.
+If the download-sequence returns :EOF then :EOF is returned, if (listen ) returns nil then :DONE
+is returned"
+  (let ((stream (c-stream connection)))
+    (while-finally-loop (listen stream) ((return :DONE))
+        ((let ((packet (download-sequence connection)))
+           (if (equal packet :EOF)
+               (return :EOF)
+               (push-to-packet-queue obj connection packet)))))))
 
 (defun handle-packets-in-queue (server queue)
   "***for use by a thread*** takes in queue, loops infinitely and handles the packets pulled from the queue"
-  ;; (forced-format t "~S" queue)
-  (loop :do
-    (handle-packet server
-                   (let ((item 
-                           (lparallel.cons-queue:pop-cons-queue (if (listp queue)
-                                                                    (first queue)
-                                                                    queue))))
-                     (forced-format t "~&item: ~A~%" item)
-                     item))))
+  (let ((q queue))
+    (loop :if (lparallel.queue:queue-empty-p q)
+            :do (sleep 0.0001)
+          :else 
+            :do (let ((packet (lparallel.queue:pop-queue q)))
+                  (handle-packet server packet)))))
+
+;; (forced-format t "~&item: ~A~%" item)
 (defmethod check-and-download-data ((obj server)(connection con-to-server))
   "Checks if a connection is ready to be read and if it is it calls download-push-to-queue"
-  (when (listen (c-stream connection))
-    (download-push-to-queue obj connection)))
-
+  ;;(when (listen (c-stream connection))
+  (download-push-to-queue obj connection))
 (defmethod process-connections ((obj server))
   "infinitely loops over current-connections-array and calls check-and-download-data using lparallels pmapcar function"
   (loop
@@ -104,6 +118,7 @@
                  ;; (restart-case (error 'sb-int:closed-stream-error)
                  ;;   (do-nuffin () nil)))))
                  (current-connections obj)))))
+  
 
 
 (defmethod accept-connections ((obj server))

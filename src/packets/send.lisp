@@ -69,10 +69,13 @@
     (let ((sender-vecced (vectorize-data (connection-name connection) %connection-name-len)))
       (setf (sender packet) sender-vecced)))
   packet)
+
 (defun write-all-to-stream (stream &rest args)
   "Writes all of the args to stream and forces the output after"
   (mapcar (lambda (arg)
-            (write-sequence arg stream))
+            (if (open-stream-p stream)
+                (write-sequence arg stream)
+                (error "stream shut~A~%" stream)))
           args)
   (finish-output stream)
   t)
@@ -169,10 +172,10 @@
              (declare (ignore key))
              (let ((current-con (car val)))
                (unless (string= (connection-name current-con) (connection-name connection))
-                 (ignore-errors
-                  (send current-con
-                        (build-clients-packet (connection-name connection)
-                                              (if connectedp 1 0)))))))
+                 ;; (ignore-errors
+                 (send current-con
+                       (build-clients-packet (connection-name connection)
+                                             (if connectedp 1 0))))))
            ;;we do not want the function to fail to send to clients that are still connected, just
            ;;because one has disconnected in quick succession. 
            (current-connections server)))
