@@ -27,6 +27,18 @@
         (shutdown client)
         (values client server)))))
 
+(defun connect-n-clients (n port threads queues)
+  (let ((server)
+        (clients))
+    (setf server (make-server "server" "127.0.0.1" port threads queues))
+    (format t "~&Server created~%")
+    (setf clients (loop :for x :from 1 :to n
+                        :collect (make-client (format nil "client~d" x)
+                                              "127.0.0.1"
+                                              port)))
+    (format t "~&Clients connected~%")
+    (values server clients)))
+        
 
 ;;need to catch errors and shut all down etc
 (defun test-large-amount-of-connections (n port threads queues)
@@ -35,6 +47,7 @@
         (clients nil))
     (handler-case
         (progn (setf server (make-server "server" "127.0.0.1" port threads queues))
+               (format t "~%Server created")
                
                (setf clients (loop :for x :from 1 :to n
                                    :collect (make-client (format nil "client~d" x)

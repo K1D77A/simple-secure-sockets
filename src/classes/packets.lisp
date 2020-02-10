@@ -36,6 +36,25 @@
              (keyword op)
              (vector (code-char (aref op 0)))
              (t op)))))
+(defclass bad-packet ()
+  ())
+(defclass invalid-packet (bad-packet)
+  ((invalid-packet
+    :accessor invalid-packet
+    :initarg :invalid-packet
+    :accessor :invalid-packet
+    :initform :invalid-packet-not-set))
+  (:documentation "Class for holding packets that have for some reason ended up broken,
+perhaps the stream broke mid download."))
+(defclass malicious-packet (bad-packet)
+  ((malicious-packet
+    :accessor malicious-packet
+    :initarg :malicious-packet
+    :accessor :malicious-packet
+    :initform :malicious-packet-not-set))
+  (:documentation "Class for holding packets that appear to be malicious. Someone is sending invalid
+packets on purpose"))
+
 (defclass data-packet (packet)
   ((data-length
     :accessor d-len

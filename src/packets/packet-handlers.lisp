@@ -26,7 +26,9 @@ SERVER handlers
 (defmethod handle-packet ((obj server) packet)
   (forced-format t "Not implemented~%")
   :NOT-IMPLEMENTED)
-
+(defmethod handle-packet ((obj server) bad-packet)
+  (forced-format t "~&bad-packet received~%")
+  :NOT-IMPLEMENTED)
 (defmethod handle-packet ((obj server) (packet kill-packet))
   (let* ((sender (sender* packet))
          (connection (get-current-connection-by-name obj sender))
@@ -54,16 +56,16 @@ CLIENT handlers
 (defparameter *client-fails* nil)
 (defmethod packet-download-function ((obj client))
   "Keeps calling the function download-sequence until the thread is manually killed. If the thread receives an :EOF from download-sequence it will simply return :DONE"
-  (loop :for packet := (download-sequence obj) :then (download-sequence obj)
-        :if (equal packet :EOF)
-          :do  (return :DONE)
-               (push :FAIL *client-fails*)
-        :else
-          :do (push-correct-queue obj packet)))
+  (let ((stream (c-stream obj)))
+    (while-finally-loop (listen stream) ((return :DONE))
+        ((let ((packet (download-sequence obj)))
+           (if (equal packet :EOF)
+               (return :EOF)
+               (push-correct-queue obj packet)))))))
+
 
 (defmethod push-to-queue (packet queue)
   "pushes all the packets received to the queue"
-  ;;for some reason queue is a list...
   ;;(forced-format t "pushing type: ~A to queue~%" (type-of packet))
   (lparallel.queue:push-queue packet queue))
 (defmethod push-correct-queue ((obj client)(packet data-packet))
@@ -96,3 +98,6 @@ CLIENT handlers
           (t (broken-packet-error
               "The value of the connected? slot in packet is neither  0 or 1"
               packet)))))
+(defmethod handle-packet ((obj client) bad-packet)
+  (forced-format t "~&bad-packet received~%")
+  :NOT-IMPLEMENTED)

@@ -60,5 +60,47 @@
   (error 'broken-packet
          :b-p-message message
          :b-p-packet packet))
+(define-condition mali-packet (broken-packet)
+  ())
+(defmethod print-object ((object mali-packet) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~s~% malicious packet that was received: ~S~%"
+            (b-p-message object)
+            (b-p-packet object))))
+(defun malicious-packet-error (message packet)
+  (error 'mali-packet
+         :b-p-message message
+         :b-p-packet packet))
 
+(define-condition broken-stream (error)
+  ((message
+    :initarg :message
+    :accessor message
+    :initform :message-not-set
+    :documentation "Message indicating what when wrong")
+   (broken-stream
+    :initarg :broken-stream
+    :reader broken-stream
+    :initform :broken-stream-not-set
+    :documentation "The stream that broke")
+   (extra-contents
+    :initarg :extra-contents
+    :reader extra-contents
+    :initform :broken-stream-not-set
+    :documentation "Extra contents that you might want to set, could be used to store data read
+before it crashed")))
 
+(defmethod print-object ((object broken-stream) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~&Message: ~A~%Contents: ~A~%Broken-stream: ~A~%"
+            (message object)
+            (let ((conts (extra-contents object)))
+              (typecase conts
+                (byte-array (format nil "[from byte-array]: ~A" (convert-to-string conts)))
+                (t conts)))
+            (broken-stream object))))
+(defun broken-stream-error (message broken-stream extra-contents)
+  (error 'broken-stream
+         :message message
+         :extra-contents extra-contents
+         :broken-stream broken-stream))

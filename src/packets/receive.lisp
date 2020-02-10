@@ -23,12 +23,9 @@
                   (handle-op obj packet)
                   (read-footer obj packet)
                   packet)
-    (SB-INT:SIMPLE-STREAM-ERROR (c)
+    (stream-error (c)
       (write-error c)
-      :EOF)
-    (end-of-file (c)
-      (write-error c)
-      :EOF))); if the stream is broken return :EOF
+      :EOF)))
 
 (defmethod read-header :before ((obj connection) (packet packet))
   (f-format :debug :packet-read  "New packet start~s" (get-universal-time))

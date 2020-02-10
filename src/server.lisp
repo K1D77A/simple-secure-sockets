@@ -26,52 +26,67 @@
            connections)))
 
 (defun make-server (name listen-ip &optional (listen-port 55555) (thread-count 5) (queues 5))
-  (declare (ignore thread-count))
   (unless (stringp name)
     (error "Name should be a string: ~s" name))
-  ;; (setf lparallel:*kernel*
-  ;;       (lparallel:make-kernel thread-count
-  ;;                              :name (format nil "[~A]:process-connections-kernel" name)))
-  (let* ((q (loop :for x :from 1 :to queues
-                  :collect (lparallel.queue:make-queue)))
-         (server (make-instance 'server :ip listen-ip :port listen-port
-                                        :name name :queues q)))
-    (handler-case (let ((r-c-f-n (format nil "[~A]:receive" name))                        
-                        (d-f-c-t (format nil "[~A]:download-from-connections-thread" name)))
-                    (if (equal (set-server-socket server) :ADDRESS-IN-USE)
-                        (shutdown server)
-                        (setf (receive-connections-function server)
-                              (make-thread (lambda ()
-                                             (accept-connections server))
-                                           :name r-c-f-n)
-                              (process-packets-function server) (start-queue-threads server)
-                              (download-from-connections-thread server)
-                              (make-thread (lambda ()
-                                             (process-connections server))
-                                           :name d-f-c-t))))
+  (let ((server (make-instance 'server :ip listen-ip :port listen-port
+                                       :name name :queues-count queues
+                                       :handle-cons-thread-count thread-count)))
+    (handler-case (if (equal (set-server-socket server) :ADDRESS-IN-USE)
+                      (progn (shutdown server)
+                             :ADDRESS-IN-USE)
+                      (progn (setup-thread-kernel server)
+                             (create-queues server)
+                             (start-accept-connections server)
+                             (start-queue-threads server)
+                             (start-download-from-connections server)
+                             server))
       (serious-condition (c) (progn (format t "Server error: ~s~%" c)
                                     (write-error c)
                                     (shutdown server)
-                                    server)))
-    server))
+                                    :ERROR-OCCURRED)))))
+(defmethod start-download-from-connections ((obj server))
+  (let ((d-f-c-t (format nil "[~A]:download-from-connections-thread" (name obj))))
+    (setf (download-from-connections-thread obj)
+          (make-thread (lambda ()
+                         (process-connections obj))
+                       :name d-f-c-t))))
+(defmethod start-accept-connections ((obj server))
+  (let ((r-c-f-n (format nil "[~A]:receive" (name obj))))
+    (setf (receive-connections-function obj)
+          (make-thread (lambda ()
+                         (accept-connections obj))
+                       :name r-c-f-n))))
+
+(defmethod create-queues ((obj server) &optional (queue-creation-func #'lparallel.queue:make-queue))
+  "returns a list of length queue-count of lparallel"
+  (setf (packet-queues obj)
+        (loop :for x :from 1 :to (queues-count obj)
+              :collect (funcall queue-creation-func))))
+(defmethod setup-thread-kernel ((obj server))
+  "Stars up lparallels kernel with the right amount of threads"
+  (with-accessors ((name name)
+                   (thread-count handle-cons-thread-count))
+      obj
+    (setf lparallel:*kernel*
+          (lparallel:make-kernel thread-count
+                                 :name (format nil "[~A]:process-connections-kernel" name)))))
 (defmethod start-queue-threads ((obj server))
   "starts up a thread for each queue and returns a list of all those threads"
-  (let ((x 0)
-        (lst nil))
-    (dolist (i (packet-queues obj) lst)
-      (push (make-thread (lambda ()
-                           (handle-packets-in-queue obj i))
-                         :name (format nil "[~A]:packet-process~d" (name obj) x))
-            lst)
-      (incf x))))
+  (setf (process-packets-function obj)
+        (let ((x 0)
+              (lst nil))
+          (dolist (i (packet-queues obj) lst)
+            (push (make-thread (lambda ()
+                                 (handle-packets-in-queue obj i))
+                               :name (format nil "[~A]:packet-process~d" (name obj) x))
+                  lst)
+            (incf x)))))
 (defparameter *moved-packets* (cons 0 nil))
 (defmethod push-to-packet-queue ((obj server)(connection con-to-server) (packet packet))
   (declare (ignore obj))
   (let ((q (queue connection)))
     (sb-ext:atomic-incf (car *moved-packets*))
     (lparallel.queue:push-queue packet q)))
-
-
 
 
 (defmethod download-push-to-queue ((obj server)(connection con-to-server))
@@ -90,36 +105,22 @@ is returned"
   "***for use by a thread*** takes in queue, loops infinitely and handles the packets pulled from the queue"
   (let ((q queue))
     (loop :if (lparallel.queue:queue-empty-p q)
-            :do (sleep 0.0001)
+            :do (sleep 0.001)
           :else 
             :do (let ((packet (lparallel.queue:pop-queue q)))
                   (handle-packet server packet)))))
 
-;; (forced-format t "~&item: ~A~%" item)
-(defmethod check-and-download-data ((obj server)(connection con-to-server))
-  "Checks if a connection is ready to be read and if it is it calls download-push-to-queue"
-  ;;(when (listen (c-stream connection))
-  (download-push-to-queue obj connection))
+
 (defmethod process-connections ((obj server))
   "infinitely loops over current-connections-array and calls check-and-download-data using lparallels pmapcar function"
   (loop
-    (if (zerop (length (current-connections-array obj)))
-        (sleep 0.1)
-        ;; (lparallel:task-handler-bind ((SB-INT:CLOSED-STREAM-ERROR
-        ;;                                (lambda (e)
-        ;;                                  (declare (ignore e))
-        ;;                                  (invoke-restart 'do-nuffin))))
-        (maphash (lambda (key val)
-                   (declare (ignore key))
-                   ;; (handler-case
-                   (check-and-download-data obj val));;this is the problem!
-                 ;;                     (error (e)
-                 ;;                     (write-error e))))
-                 ;; (restart-case (error 'sb-int:closed-stream-error)
-                 ;;   (do-nuffin () nil)))))
-                 (current-connections obj)))))
-  
-
+    :if (zerop (length (current-connections-array obj)))
+      :do (sleep 0.001)
+    :else
+      :do(maphash (lambda (key val)
+                    (declare (ignore key))
+                    (download-push-to-queue obj val))
+                  (current-connections obj))))
 
 (defmethod accept-connections ((obj server))
   (loop :do
@@ -203,9 +204,9 @@ array"
       obj
     (unless (keywordp download-thread)
       (stop-thread download-thread))
+    (setf (current-connections-array obj) nil)
     (unless (keywordp receive-connections)
       (stop-thread receive-connections))
-    
     (lparallel:end-kernel)
     (unless (keywordp process-packets)
       (mapcar #'stop-thread process-packets))

@@ -84,6 +84,14 @@
    (download-from-connections-thread
     :accessor download-from-connections-thread
     :initform :download-from-connections-thread-not-set)
+   (queues-count
+    :accessor queues-count
+    :initform 1
+    :initarg :queues-count)
+   (handle-cons-thread-count
+    :accessor handle-cons-thread-count
+    :initform 1
+    :initarg :handle-cons-thread-count)
    (current-listening-socket
     :accessor current-listening-socket
     :initform :current-listening-socket-not-set))
@@ -96,16 +104,22 @@
 
 
 (defmethod print-object ((object server) stream)
-  (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Packet queue: ~A~%Process packets function: ~A~%Current-connections: ~%"
-            (name object)
-            (receive-connections-function object)
-            (packet-queues object)
-            (process-packets-function object))
-    (maphash (lambda (key val)
-               (declare (ignore key))
-               (format stream "~A~%" (connection-name val)))
-             (current-connections object))))
+  (with-accessors ((name name)
+                   (r-c-f receive-connections-function)
+                   (p-q packet-queues)
+                   (p-p-f process-packets-function)
+                   (current-cons current-connections))
+      object
+    (print-unreadable-object (object stream :type t :identity t)
+      (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Packet queues: ~A~%Process packets function: ~A~%Current-connections: ~A~%"
+              name
+              r-c-f
+              (format nil "(~A .. ~A more .. )" (first p-q)  (1- (length p-q)))
+              (format nil "(~A .. ~A more .. )" (first p-p-f) (1- (length p-p-f)))
+              (maphash (lambda (key val)
+                         (declare (ignore key))
+                         (format stream "~A~%" (connection-name val)))
+                       current-cons)))))
 
 (defmethod print-object ((object client) stream)
   (print-unreadable-object (object stream :type t :identity t)
