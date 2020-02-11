@@ -53,33 +53,6 @@ CLIENT handlers
 
 
 |#
-(defparameter *client-fails* nil)
-(defmethod packet-download-function ((obj client))
-  "Keeps calling the function download-sequence until the thread is manually killed. If the thread receives an :EOF from download-sequence it will simply return :DONE"
-  (let ((stream (c-stream obj)))
-    (while-finally-loop (listen stream) ((return :DONE))
-        ((let ((packet (download-sequence obj)))
-           (if (equal packet :EOF)
-               (return :EOF)
-               (push-correct-queue obj packet)))))))
-
-
-(defmethod push-to-queue (packet queue)
-  "pushes all the packets received to the queue"
-  ;;(forced-format t "pushing type: ~A to queue~%" (type-of packet))
-  (lparallel.queue:push-queue packet queue))
-(defmethod push-correct-queue ((obj client)(packet data-packet))
-  "Pushes the packet to the correct queue based on the type of packet. data-packets go into (gethash (sender packet) (data-packet-queues obj)), which is a specific queue identified by client names. other packets which are server related packets simply go into the queue in (packet-queue obj)"
-  (let* ((c-sender (sender* packet))
-         (queue (gethash c-sender (data-packet-queues obj))))
-    (if queue ;;when it is not null
-        (push-to-queue packet  queue)
-        (let ((queue (lparallel.queue:make-queue)))
-          (push-to-queue packet queue)
-          (setf (gethash c-sender (data-packet-queues obj)) queue)))))
-
-(defmethod push-correct-queue ((obj client) packet)
-  (push-to-queue packet  (packet-queue obj)))
 
 (defmethod handle-packet ((obj client)(packet kill-packet))
   (shutdown obj nil))
