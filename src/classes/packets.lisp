@@ -119,9 +119,9 @@ packets on purpose"))
   (print-unreadable-object (object stream :type t :identity t)
     (print-packet-superclass stream object)))
 
-  (defmethod print-object ((object ack-packet) stream)
-    (print-unreadable-object (object stream :type t :identity t)
-      (print-packet-superclass stream object)))
+(defmethod print-object ((object ack-packet) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (print-packet-superclass stream object)))
 (defmethod print-object ((object identify-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (print-packet-superclass stream object)
@@ -138,9 +138,10 @@ packets on purpose"))
 
 (defmethod print-object ((object packet) stream)
   (print-unreadable-object (object stream)
-    (format stream "Header: ~s~%Recipient: ~s~%OP: ~s~%Footer: ~s~%"
+    (format stream "Header: ~s~%Recipient: ~s~%Sender: ~s~%OP: ~s~%Footer: ~s~%"
             (header* object)
             (recipient* object)
+            (sender* object)
             (op* object)
             (footer* object))))
 

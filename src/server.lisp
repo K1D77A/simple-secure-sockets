@@ -34,12 +34,12 @@
     (handler-case (if (equal (set-server-socket server) :ADDRESS-IN-USE)
                       (progn (shutdown server)
                              :ADDRESS-IN-USE)
-                      (progn ;;(setup-thread-kernel server)
-                        (create-queues server)
-                        (start-accept-connections server)
-                        (start-queue-threads server)
-                        (start-download-from-connections server)
-                        server))
+                      (progn (setup-thread-kernel server)
+                             (create-queues server)
+                             (start-accept-connections server)
+                             (start-queue-threads server)
+                             (start-download-from-connections server)
+                             server))
       (serious-condition (c) (progn (format t "Server error: ~s~%" c)
                                     (write-error c)
                                     (shutdown server)
@@ -95,11 +95,14 @@ returns nil and pushes them onto the queue associated with connection.
 If the download-sequence returns :EOF then :EOF is returned, if (listen ) returns nil then :DONE
 is returned"
   (let ((stream (c-stream connection)))
-    (while-finally-loop (listen stream) ((return :DONE))
-        ((let ((packet (download-sequence connection)))
-           (if (equal packet :EOF)
-               (return :EOF)
-               (push-to-packet-queue obj connection packet)))))))
+    (handler-case
+        (while-finally-loop (listen stream) ((return :DONE))
+            ((let ((packet (download-sequence connection)))
+               (if (equal packet :EOF)
+                   (return :EOF)
+                   (push-to-packet-queue obj connection packet)))))
+      (stream-error () :DONE)
+      (TYPE-ERROR () :DONE))))
 
 (defun handle-packets-in-queue (server queue)
   "***for use by a thread*** takes in queue, loops infinitely and handles the packets pulled from the queue"
@@ -112,15 +115,14 @@ is returned"
 
 
 (defmethod process-connections ((obj server))
-  "infinitely loops over current-connections-array and calls check-and-download-data using lparallels pmapcar function"
+  "infinitely loops over current-connections-array and calls using lparallels pmapcar function"
   (loop
     :if (zerop (length (current-connections-array obj)))
       :do (sleep 0.001)
     :else
-      :do(maphash (lambda (key val)
-                    (declare (ignore key))
-                    (download-push-to-queue obj val))
-                  (current-connections obj))))
+      :do (lparallel:pmapcar  (lambda (con)
+                                (download-push-to-queue obj con))
+                              (current-connections-array obj))))
 
 (defmethod accept-connections ((obj server))
   (loop :do
@@ -141,8 +143,11 @@ is returned"
                 ;; (forced-format t "~a" (type-of (queue current-connection)))
                 (add-connection obj current-connection)
                 (send current-connection (build-ack-packet))
+                (sb-ext:atomic-incf (car *moved-packets*))
                 (setf (connectedp current-connection) t)
                 (update-all-clients-with-all-connected obj))
+              ;;ideally it would be better if we could jam this into the background
+              ;;but 
               (let ((type (type-of identify-packet))) 
                 (f-format :error :server-receive
                           "packet was not of type identify-packet: ~A" type)
@@ -204,7 +209,7 @@ array"
       obj
     (unless (keywordp download-thread)
       (stop-thread download-thread))
-    (setf (current-connections-array obj) nil)
+    ;;   (setf (current-connections-array obj) nil)
     (unless (keywordp receive-connections)
       (stop-thread receive-connections))
     (lparallel:end-kernel)

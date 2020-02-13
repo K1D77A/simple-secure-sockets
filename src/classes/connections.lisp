@@ -19,6 +19,9 @@
    (stream
     :accessor c-stream
     :initform :stream-not-set)
+   (stream-lock
+    :accessor stream-lock
+    :initform (bt:make-lock))
    (connectedp
     :accessor connectedp
     :initform nil)))
@@ -114,7 +117,7 @@
       (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Packet queues: ~A~%Process packets function: ~A~%Current-connections: ~A~%"
               name
               r-c-f
-              (format nil "(~A .. ~A more .. )" (first p-q)  (1- (length p-q)))
+              (format nil "~D queues" (length p-q))
               (format nil "(~A .. ~A more .. )" (first p-p-f) (1- (length p-p-f)))
               (maphash (lambda (key val)
                          (declare (ignore key))

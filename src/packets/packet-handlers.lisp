@@ -18,7 +18,7 @@ SERVER handlers
   (let* ((recipient (recipient* packet))
          ;;recipient in the packet is a binary array so needs to be converted to a string
          (connection (get-current-connection-by-name obj recipient)))
-    (when recipient;;currently just drops packet if can't find the recipient in the
+    (when (and recipient connection);;currently just drops packet if can't find the recipient in the
       ;;current connections hash-table
       (forward connection packet))))
 (defun forward (connection packet)
@@ -27,7 +27,7 @@ SERVER handlers
   (forced-format t "Not implemented~%")
   :NOT-IMPLEMENTED)
 (defmethod handle-packet ((obj server) bad-packet)
-  (forced-format t "~&bad-packet received~%")
+  (forced-format t "~& server bad-packet received~%")
   :NOT-IMPLEMENTED)
 (defmethod handle-packet ((obj server) (packet kill-packet))
   (let* ((sender (sender* packet))
@@ -72,5 +72,5 @@ CLIENT handlers
               "The value of the connected? slot in packet is neither  0 or 1"
               packet)))))
 (defmethod handle-packet ((obj client) bad-packet)
-  (forced-format t "~&bad-packet received~%")
+  (forced-format t "~&client bad-packet received~%")
   :NOT-IMPLEMENTED)

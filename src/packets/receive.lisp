@@ -14,19 +14,25 @@
 
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
-  ;; (declare (optimize (speed 3) (safety 0)))
-  (handler-case (let ((packet (make-instance 'packet)))
-                  (read-header obj packet)
-                  (read-recipient obj packet)
-                  (read-sender obj packet)
-                  (read-op obj packet)
-                  (handle-op obj packet)
-                  (read-footer obj packet)
-                  packet)
-    (stream-error (c)
-      (write-error c)
+  ;;(declare (optimize (speed 3) (safety 0)))
+  
+  (handler-case
+      (bt:with-lock-held ((stream-lock obj))
+        (let ((packet (make-instance 'packet)))
+          (read-header obj packet)
+          (read-recipient obj packet)
+          (read-sender obj packet)
+          (read-op obj packet)
+          (handle-op obj packet)
+          (read-footer obj packet)
+          packet))
+    (stream-error ()
+      ;;(write-error c)
+      :EOF)
+    (broken-packet ()
+      (sb-ext:atomic-incf (car oofs))
       :EOF)))
-
+(defparameter oofs (cons 0 nil))
 (defmethod read-header :before ((obj connection) (packet packet))
   (f-format :debug :packet-read  "New packet start~s" (get-universal-time))
   (f-format :debug :packet-read  "-Reading header"))
@@ -44,13 +50,32 @@
   (setf (recipient packet)
         (the byte-array (read-n-bytes
                          %connection-name-len (c-stream obj)))))
+(defmethod read-recipient :after ((obj client)(packet data-packet))
+  "This :after method is used to verify that when a packet is read by a client, the recipient is the
+same as the clients name"
+  (when (connectedp obj)
+    (let ((reci (recipient* packet))
+          (name (connection-name obj)))
+      (unless (string= reci name)
+        (broken-packet-error "recipient* and connection-name are not equal" packet)))))
 (defmethod read-sender :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "-Reading sender"))
 (defmethod read-sender :after ((obj connection)(packet packet))
   (f-format :debug :packet-read  "-sender read: ~A "(sender* packet)))
+(defparameter x nil)
+(defmethod read-sender :after ((obj con-to-server)(packet data-packet))
+  "This :after method is used to verify that when a packet is sent to the server from a client, the
+sender of the packet is the same as the associated connections-name"
+  (when (connectedp obj)
+    (let ((send (sender* packet))
+          (name (connection-name obj)))
+      (push (cons send name) x)
+      (unless (string= send name)
+        (broken-packet-error "sender* and connection-name are not equal" packet)))))
+
 (defmethod read-sender ((obj connection) (packet packet))
   (let ((sender (the byte-array (read-n-bytes %connection-name-len (c-stream obj)))))
-    (setf (sender packet) sender)))
+    (setf (sender packet) sender)))    
 
 
 (defmethod read-op :before ((obj connection)(packet packet))

@@ -130,12 +130,16 @@
                                     (equal item x))
                                   sequence
                                   :from-end t)))
-    (subseq sequence 0 (1+ first-x))))
+    (restart-case (subseq sequence 0 (1+ first-x))
+      (use-value (value) value))))
 
 (defun remove-trailing-spaces (sequence)
   (remove-trailing-x sequence #\Space))
 (defun remove-trailing-nulls (sequence)
-  (remove-trailing-x sequence #\Nul))
+  (handler-bind ((error (lambda (c)
+                          (declare (ignore c))
+                          (use-value ""))))
+    (remove-trailing-x sequence #\Nul)))
 (defmacro eval-body-n-times-by-interval-until-t (number-of-intervals interval-time &body body)
   "Evals body n times by an interval of seconds until either body evaluates to non nil, in which case the value is returned. If n is reached with no evaluation to non nil then nil is returned, indicating failure"
   (let ((val (gensym)))

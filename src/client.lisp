@@ -94,7 +94,7 @@
     (loop
       :if (listen stream)
         :do (let ((packet (download-sequence obj)))
-              (forced-format t "~&client: ~A~%" (connection-name obj))
+              ;; (forced-format t "~&client: ~A~%" (connection-name obj))
               (if (equal packet :EOF)
                   (return :EOF)
                   (push-correct-queue obj packet)))
