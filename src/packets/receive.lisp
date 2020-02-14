@@ -1,21 +1,43 @@
 ;;;;this file contains many of the methods required for receiving packets from a connection and ;;;;processing them
 (in-package :simple-secure-sockets)
-;;(declaim (optimize (speed 3) (safety 0)))
-
+(declaim (optimize (speed 3) (safety 1)))
+(defun non-block-read-byte (stream &optional (eof-error-p t) eof-value)
+  "read byte that is non blocking, if there is nothing to read it simply returns nil"
+  (declare (optimize (speed 3)(safety 0)))
+  (the (or u-byte boolean)
+       (if (the boolean (listen stream))
+           (the u-byte (read-byte stream eof-error-p eof-value))
+           nil)))
+(defun timed-non-block-read-byte (time stream &optional (eof-error-p t) eof-value (sleep-time 0.001))
+  "This is a non blocking version of read byte which is timed. basically you give it a time and it 
+will loop and check if there is anything on the stream to be read, if not it'll sleep for sleep-time
+if it eventually finds something to read it'll read and then return that byte. if it reaches the 
+timeout it'll signal and error"
+  (let ((byte (non-block-read-byte stream eof-error-p eof-value)))
+    (if byte
+        byte
+        (loop :with increment := (ceiling (/ time sleep-time))
+              :for x :from 1 :to increment
+              :for byte? := (non-block-read-byte stream t) :then (non-block-read-byte stream t)
+              :if byte?
+                :do (return byte?)
+              :else
+                :do (sleep sleep-time)
+              :finally (error 'stream-error :stream stream)))))
 (defun read-n-bytes (n stream)
   "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
-  ;; (declare (optimize (speed 3)(safety 0)))
+  (declare (optimize (speed 3)(safety 0)))
   (let ((data (the byte-array (make-array n :element-type 'u-byte))))
     (declare (type byte-array data))
     (dotimes (i n data)
       (declare (type fixnum i)
                (type fixnum n))
-      (setf (aref data i) (the u-byte (read-byte stream t))))))
-
+      (setf (aref data i) (the u-byte (timed-non-block-read-byte 5 stream t))))))
+;;if a half complete packet is sent, this will simply block...
+;;if only one thread processes the connections then this means the entire server blocks...
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
-  ;;(declare (optimize (speed 3) (safety 0)))
-  
+  (declare (optimize (speed 3) (safety 1)))  
   (handler-case
       (bt:with-lock-held ((stream-lock obj))
         (let ((packet (make-instance 'packet)))
@@ -28,6 +50,8 @@
           packet))
     (stream-error ()
       ;;(write-error c)
+      :EOF)
+    (SB-INT:SIMPLE-STREAM-ERROR ()
       :EOF)
     (broken-packet ()
       (sb-ext:atomic-incf (car oofs))
@@ -69,7 +93,7 @@ sender of the packet is the same as the associated connections-name"
   (when (connectedp obj)
     (let ((send (sender* packet))
           (name (connection-name obj)))
-      (push (cons send name) x)
+      ;;(push (cons send name) x)
       (unless (string= send name)
         (broken-packet-error "sender* and connection-name are not equal" packet)))))
 
@@ -116,11 +140,14 @@ sender of the packet is the same as the associated connections-name"
 correct place in the packet"
   (let* ((stream (c-stream obj))
          ;;op then sender then data
-         (len (the u-byte (read-byte stream)))
-         (data (the byte-array (read-n-bytes len stream))))
-    (setf (d-len packet) (the single-byte
-                              (make-array 1 :element-type 'u-byte :initial-element len))
-          (data packet) data)))
+         (len (the u-byte (read-byte stream))))
+    (if (<= len %max-data-size)
+        (let ((data (the byte-array (read-n-bytes len stream))))
+          (setf (d-len packet) (the single-byte
+                                    (make-array 1 :element-type 'u-byte :initial-element len))
+                (data packet) data))
+        (broken-packet-error
+         "Packet received is trying to send over 255 bytes in data field" packet))))
 (defmethod handle-op ((obj connection)(packet clients-packet))
   (let* ((stream (c-stream obj))
          (client (the byte-array (read-n-bytes %connection-name-len stream)))

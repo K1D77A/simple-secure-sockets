@@ -55,6 +55,8 @@ CLIENT handlers
 |#
 
 (defmethod handle-packet ((obj client)(packet kill-packet))
+  (forced-format t "~&Kill packet ~%")
+  (send obj (build-ack-packet))
   (shutdown obj nil))
 
 (defmethod handle-packet ((obj client)(packet clients-packet))

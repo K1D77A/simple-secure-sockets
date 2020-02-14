@@ -92,7 +92,9 @@
   "Keeps calling the function download-sequence until the thread is manually killed. If the thread receives an :EOF from download-sequence it will simply return :DONE"
   (let ((stream (c-stream obj)))
     (loop
-      :if (listen stream)
+      :if (handler-case (listen stream)
+            (stream-error ()
+              (return :EOF)))
         :do (let ((packet (download-sequence obj)))
               ;; (forced-format t "~&client: ~A~%" (connection-name obj))
               (if (equal packet :EOF)
@@ -117,6 +119,7 @@
           (setf (gethash c-sender (data-packet-queues obj)) queue)))))
 
 (defmethod push-correct-queue ((obj client) packet)
+  ;;(forced-format t "~&packet: ~A~%" packet)
   (push-to-queue packet  (packet-queue obj)))
 
 (defun sleep-for-x (x)
@@ -166,22 +169,22 @@
   (f-format :info :client-stop  "Shutdown complete"))
 (defun shutdown-client (client &optional (send-killp nil))
   "shuts down the connection on server"
-  (ignore-errors
-   (stop-thread (packet-processor-function client))
-   (stop-thread (packet-download-thread client))
-   (setf (connectedp client) nil)
-   (when send-killp
-     (send client (build-kill-packet)))
-   ;;need to send a kill packet
-   (safe-socket-close (c-socket client));;this throws and end of file for some reason.
-   (remhash (connection-name client) *current-clients*)))
+  (stop-thread (packet-download-thread client))
+  (setf (connectedp client) nil)
+  (when send-killp
+    (send client (build-kill-packet)))
+  ;;need to send a kill packet
+  (safe-socket-close (c-socket client));;this throws and end of file for some reason.
+  (remhash (connection-name client) *current-clients*)
+  (make-thread (lambda ();;this is necessary because you cannot kill the calling thread
+                 (stop-thread (packet-processor-function client)))))
 
 (defmethod shutdown ((obj client) &optional  (send-killp t))
   "shuts down the connection on server"
   (shutdown-client obj send-killp))
-  (defmethod shutdown ((obj client) &optional  (send-killp nil))
-    "shuts down the connection on server"
-    (shutdown-client obj send-killp))
+(defmethod shutdown ((obj client) &optional  (send-killp nil))
+  "shuts down the connection on server"
+  (shutdown-client obj send-killp))
 
 
 

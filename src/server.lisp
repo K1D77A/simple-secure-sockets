@@ -1,6 +1,6 @@
 
 (in-package :simple-secure-sockets)
-
+(declaim (optimize (speed 3)(safety 1)))
 (defparameter *current-servers* (make-hash-table :test 'equal))
 (defun start-server (name ip &optional (port 55555))
   (if (unique-key-p *current-servers* name)
@@ -120,9 +120,8 @@ is returned"
     :if (zerop (length (current-connections-array obj)))
       :do (sleep 0.001)
     :else
-      :do (lparallel:pmapcar  (lambda (con)
-                                (download-push-to-queue obj con))
-                              (current-connections-array obj))))
+      :do (loop :for con :across (current-connections-array obj)
+                :do (download-push-to-queue obj con))))
 
 (defmethod accept-connections ((obj server))
   (loop :do
@@ -170,21 +169,22 @@ array"
         (setf (aref cons-ar empty-pos) connection)
         (vector-push-extend connection cons-ar))))
 
-(defmethod shutdown ((obj connection) &optional (send-killp t))
+(defmethod shutdown ((obj con-to-server) &optional send-killp)
   "shuts down the connection on server"
-  (declare (ignore send-killp))
+  ;; (declare (ignore send-killp))
+  (forced-format t "~&sending kill~%")
   ;; (print-object obj t)
   ;;(find-and-kill-thread (processor-name obj))
-  (send obj (build-kill-packet))
-  (safe-socket-close (c-socket obj))
-  (setf (connectedp obj) nil))
-(defmethod shutdown ((obj connection) &optional (send-killp nil))
-  "shuts down the connection on server"
-  (declare (ignore send-killp))
-  ;; (print-object obj t)
-  ;;(find-and-kill-thread (processor-name obj))
-  (safe-socket-close (c-socket obj))
-  (setf (connectedp obj) nil))
+  (when send-killp
+    (send obj (build-kill-packet))
+    (let ((pack (download-sequence obj)))
+      ;;even if there is an error and :EOF is returned just kill the connection
+      (when (or (equal (type-of pack) 'ack-packet) (equal pack :EOF))
+        (safe-socket-close (c-socket obj))
+        (setf (connectedp obj) nil)))
+    (safe-socket-close (c-socket obj))
+    (setf (connectedp obj) nil)))
+
 
 
 (defmethod shutdown :before ((obj server) &optional send-killp)
@@ -199,7 +199,7 @@ array"
   (declare (ignore send-killp))
   (let ((table (current-connections obj)))
     (maphash (lambda (key val)
-               (ignore-errors (shutdown val t))
+               (shutdown val t)
                (remhash key table))
              table))
   (with-accessors  ((receive-connections receive-connections-function)

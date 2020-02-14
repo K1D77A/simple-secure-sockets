@@ -91,8 +91,9 @@
   "takes in a string and converts it to an array of type '(unsigned-byte 8)"
   (declare (optimize (speed 3)(safety 1)))
   (let* ((as-string (the simple-string (convert-to-string data)))
-         (arr (make-array (or set-length (length as-string))
-                          :element-type '(unsigned-byte 8))))
+         (arr (the byte-array
+                   (make-array (the integer (or set-length (the integer(length as-string))))
+                               :element-type '(unsigned-byte 8)))))
     (declare (string as-string))
     (the byte-array (map-into arr #'char-code as-string))))
 
