@@ -101,8 +101,8 @@ is returned"
                (if (equal packet :EOF)
                    (return :EOF)
                    (push-to-packet-queue obj connection packet)))))
-      (stream-error () :DONE)
-      (TYPE-ERROR () :DONE))))
+      (stream-error () :EOF)
+      (TYPE-ERROR () :EOF))))
 
 (defun handle-packets-in-queue (server queue)
   "***for use by a thread*** takes in queue, loops infinitely and handles the packets pulled from the queue"
@@ -121,7 +121,10 @@ is returned"
       :do (sleep 0.001)
     :else
       :do (loop :for con :across (current-connections-array obj)
-                :do (download-push-to-queue obj con))))
+                :for x := (download-push-to-queue obj con)
+                  :then (download-push-to-queue obj con)
+                :when (equal x :EOF)
+                  :do (shutdown con nil))))
 
 (defmethod accept-connections ((obj server))
   (loop :do
@@ -176,14 +179,14 @@ array"
   ;; (print-object obj t)
   ;;(find-and-kill-thread (processor-name obj))
   (when send-killp
-    (send obj (build-kill-packet))
-    (let ((pack (download-sequence obj)))
-      ;;even if there is an error and :EOF is returned just kill the connection
-      (when (or (equal (type-of pack) 'ack-packet) (equal pack :EOF))
-        (safe-socket-close (c-socket obj))
-        (setf (connectedp obj) nil)))
-    (safe-socket-close (c-socket obj))
-    (setf (connectedp obj) nil)))
+    (send obj (build-kill-packet)))
+  (let ((pack (download-sequence obj)))
+    ;;even if there is an error and :EOF is returned just kill the connection
+    (when (or (equal (type-of pack) 'ack-packet) (equal pack :EOF))
+      (safe-socket-close (c-socket obj))
+      (setf (connectedp obj) nil)))
+  (safe-socket-close (c-socket obj))
+  (setf (connectedp obj) nil))
 
 
 
