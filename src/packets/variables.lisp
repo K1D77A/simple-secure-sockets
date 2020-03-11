@@ -30,3 +30,18 @@
 (deftype byte-array () '(simple-array (unsigned-byte 8) (*)))
 (deftype single-byte () '(simple-array (unsigned-byte 8) (1)))
 (deftype u-byte () '(integer 0 255))
+
+
+(defparameter *start-header-mfsm* (make-micro-finite-state-machine-for-string %start-header))
+(defparameter *data-header-mfsm* (make-micro-finite-state-machine-for-string %op-data))
+(defparameter *kill-header-mfsm* (make-micro-finite-state-machine-for-string %op-kill))
+(defparameter *identify-header-mfsm* (make-micro-finite-state-machine-for-string %op-identify))
+(defparameter *ack-header-mfsm* (make-micro-finite-state-machine-for-string %op-ack))
+(defparameter *stop-footer-mfsm* (make-micro-finite-state-machine-for-string %stop-footer))
+(defparameter *clients-header-mfsm* (make-micro-finite-state-machine-for-string %op-clients))
+
+(defparameter *kill-recipient-mfsm* (make-micro-finite-state-machine-for-string %kill-recipient))
+(defparameter *identify-recipient-mfsm*
+  (make-micro-finite-state-machine-for-string %identify-recipient))
+(defparameter *ack-recipient-mfsm* (make-micro-finite-state-machine-for-string %ack-recipient))
+(defparameter *clients-recipient-mfsm* (make-micro-finite-state-machine-for-string %clients-recipient))
