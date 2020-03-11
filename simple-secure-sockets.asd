@@ -13,6 +13,7 @@
                  (:file "classes/packets")
                  (:file "generics")
                  (:file "packets/variables")
+                 (:file "packets/fsm")
                  (:file "packets/receive")
                  (:file "packets/send")
                  (:file "packets/packet-handlers")

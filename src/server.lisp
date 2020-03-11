@@ -264,6 +264,3 @@ array"
   "returns the connection object associated with client-name"
   (get-current-connection-by-name obj client-name))
 
-
-
-
