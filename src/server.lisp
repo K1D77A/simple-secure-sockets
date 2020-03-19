@@ -134,7 +134,8 @@ is returned"
                 :for x := (download-push-to-queue obj con)
                   :then (download-push-to-queue obj con)
                 :when (equal x :EOF)
-                  :do (shutdown con nil))))
+                  :do (shutdown con nil)
+                      (remove-con obj con))))
 
 (defmethod accept-connections ((obj server))
   (loop :do

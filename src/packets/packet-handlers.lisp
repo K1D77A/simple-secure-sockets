@@ -34,7 +34,7 @@ SERVER handlers
          (connection (get-current-connection-by-name obj sendr)))
     (forced-format t "con ~S" connection)
     (shutdown connection)
-    ;;(remove-con obj connection)
+    (remove-con obj connection)
     (ignore-errors (update-all-clients-with-disconnected-client obj connection))))
 ;;tell all the connected clients
 ;;that this client has disconnected

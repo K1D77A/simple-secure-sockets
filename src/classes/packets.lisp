@@ -104,8 +104,6 @@ packets on purpose"))
              (array (aref con? 0))
              (t con?)))))
 
-
-
 (defmethod print-object ((object data-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (print-packet-superclass stream object)
@@ -114,7 +112,6 @@ packets on purpose"))
             (d-len* object)           
             (data* object))))
 
-
 (defmethod print-object ((object kill-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (print-packet-superclass stream object)))
@@ -122,6 +119,7 @@ packets on purpose"))
 (defmethod print-object ((object ack-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (print-packet-superclass stream object)))
+
 (defmethod print-object ((object identify-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (print-packet-superclass stream object)
@@ -134,7 +132,6 @@ packets on purpose"))
     (format stream "~%clients-name: ~s~%connected?: ~s~%"
             (client-name* object)
             (connected?* object))))
-
 
 (defmethod print-object ((object packet) stream)
   (print-unreadable-object (object stream)
@@ -149,10 +146,10 @@ packets on purpose"))
   (when (closer-mop:subclassp  (find-class (type-of packet))
                                (find-class 'packet))
     (print-unreadable-object (packet stream)
-      (format stream "~%Header: ~s~%Sender: ~s~%Recipient: ~s~%OP: ~s~%Footer: ~s~%"
+      (format stream "~%Header: ~s~%OP: ~s~%Sender: ~s~%Recipient: ~s~%Footer: ~s~%"
               (header* packet)
+              (op* packet)
               (sender* packet)
               (recipient* packet)
-              (op* packet)
               (footer* packet))))
   nil)
