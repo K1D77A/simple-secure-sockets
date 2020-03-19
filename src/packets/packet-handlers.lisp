@@ -30,19 +30,25 @@ SERVER handlers
   (forced-format t "~& server bad-packet received~%")
   :NOT-IMPLEMENTED)
 (defmethod handle-packet ((obj server) (packet kill-packet))
-  (let* ((sender (sender* packet))
-         (connection (get-current-connection-by-name obj sender))
-         (connection connection))
-    (shutdown connection)    
-    (ignore-errors (update-all-clients-with-disconnected-client obj connection))
-    ;;tell all the connected clients
-    ;;that this client has disconnected
-    ;;can ignore the errors because there might be an end of file error, this will happen if
-    ;;clients have shutdown their connection while the server is trying to inform them that someone
-    ;;has disconnected.
-    (remhash sender (current-connections obj))));;remove the connection from the hash table
+  (let* ((sendr (sender* packet))
+         (connection (get-current-connection-by-name obj sendr)))
+    (forced-format t "con ~S" connection)
+    (shutdown connection)
+    ;;(remove-con obj connection)
+    (ignore-errors (update-all-clients-with-disconnected-client obj connection))))
+;;tell all the connected clients
+;;that this client has disconnected
+;;can ignore the errors because there might be an end of file error, this will happen if
+;;clients have shutdown their connection while the server is trying to inform them that someone
+;;has disconnected.
+;;remove the connection from the hash table
 
 
+;;;might need a lock to do this... can make a macro called something like
+;;;(modify-server server body...) that just holds a lock while modifications are made
+;;;because a connection will attempt to push to connections array at the same time as one is being
+;;;deleted perhaps... who knows what happens in that instance.. this does need a lock
+;;;because multiple threads will be removing connections at the same time
 #|
 
 

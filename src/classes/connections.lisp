@@ -70,7 +70,7 @@
     :initform :port-not-set)
    (current-connections
     :accessor current-connections
-    :initform (make-hash-table :test #'equal))
+    :initform (make-hash-table :test #'equalp))
    (current-connections-array
     :accessor current-connections-array
     :initform (make-array 0  :adjustable t :element-type 'connection :fill-pointer 0))
@@ -91,6 +91,9 @@
     :accessor queues-count
     :initform 1
     :initarg :queues-count)
+   (modification-lock
+    :accessor modification-lock
+    :initform (bt:make-lock))
    (handle-cons-thread-count
     :accessor handle-cons-thread-count
     :initform 1

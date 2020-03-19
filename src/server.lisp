@@ -1,21 +1,27 @@
 
 (in-package :simple-secure-sockets)
+
 (declaim (optimize (speed 3)(safety 1)))
+
 (defparameter *current-servers* (make-hash-table :test 'equal))
+
 (defun start-server (name ip &optional (port 55555))
   (if (unique-key-p *current-servers* name)
       (setf (gethash name *current-servers*)
             (make-server name ip port))
       (error "name is not a unique name")))
+
 (defun stop-server (name)
   "stops a server based on its name"
   (let ((server (gethash name *current-servers*)))
     (shutdown server)
     (remhash name *current-servers*)))
+
 (defmethod done-processing-p ((obj server))
   "checks if all the queues are empty."
   (let ((queues (packet-queues obj)))
     (every #'lparallel.queue:queue-empty-p queues)))
+
 (defmethod all-connection-streams-empty-p ((server server))
   (let ((connections (current-connections-array server)))
     (every (lambda (con)
@@ -44,12 +50,14 @@
                                     (write-error c)
                                     (shutdown server)
                                     :ERROR-OCCURRED)))))
+
 (defmethod start-download-from-connections ((obj server))
   (let ((d-f-c-t (format nil "[~A]:download-from-connections-thread" (name obj))))
     (setf (download-from-connections-thread obj)
           (make-thread (lambda ()
                          (process-connections obj))
                        :name d-f-c-t))))
+
 (defmethod start-accept-connections ((obj server))
   (let ((r-c-f-n (format nil "[~A]:receive" (name obj))))
     (setf (receive-connections-function obj)
@@ -62,6 +70,7 @@
   (setf (packet-queues obj)
         (loop :for x :from 1 :to (queues-count obj)
               :collect (funcall queue-creation-func))))
+
 (defmethod setup-thread-kernel ((obj server))
   "Stars up lparallels kernel with the right amount of threads"
   (with-accessors ((name name)
@@ -81,7 +90,9 @@
                                :name (format nil "[~A]:packet-process~d" (name obj) x))
                   lst)
             (incf x)))))
+
 (defparameter *moved-packets* (cons 0 nil))
+
 (defmethod push-to-packet-queue ((obj server)(connection con-to-server) (packet packet))
   (declare (ignore obj))
   (let ((q (queue connection)))
@@ -112,7 +123,6 @@ is returned"
           :else 
             :do (let ((packet (lparallel.queue:pop-queue q)))
                   (handle-packet server packet)))))
-
 
 (defmethod process-connections ((obj server))
   "infinitely loops over current-connections-array and calls using lparallels pmapcar function"
@@ -161,21 +171,23 @@ is returned"
 array"
   ;;later, if either the value in the hashtable or the value in the array is modified, the value
   ;;of the other is modified.
-  (setf (gethash (connection-name connection)
-                 (current-connections obj))
-        connection)
-  (let* ((cons-ar (current-connections-array obj))
-         (empty-pos (position-if (lambda (ele)
-                                   (not (connectedp ele)))
-                                 cons-ar)))
-    (if (numberp empty-pos)
-        (setf (aref cons-ar empty-pos) connection)
-        (vector-push-extend connection cons-ar))))
+  (modify-server obj
+    (setf (gethash (connection-name connection)
+                   (current-connections obj))
+          connection)
+    (let* ((cons-ar (current-connections-array obj))
+           (empty-pos (position-if (lambda (ele)
+                                     (not (connectedp ele)))
+                                   cons-ar)))
+      (if (numberp empty-pos)
+          (setf (aref cons-ar empty-pos) connection)
+          (vector-push-extend connection cons-ar)))))
 
 (defmethod shutdown ((obj con-to-server) &optional send-killp)
   "shuts down the connection on server"
   ;; (declare (ignore send-killp))
-  (forced-format t "~&sending kill~%")
+  (when send-killp
+    (forced-format t "~&sending kill~%"))
   ;; (print-object obj t)
   ;;(find-and-kill-thread (processor-name obj))
   (when send-killp
@@ -188,22 +200,30 @@ array"
   (safe-socket-close (c-socket obj))
   (setf (connectedp obj) nil))
 
-
-
 (defmethod shutdown :before ((obj server) &optional send-killp)
   (declare (ignore send-killp))
   (f-format :info :server-stop "Attempting to shutdown server"))
+
 (defmethod shutdown :after ((obj server) &optional send-killp)
   (declare (ignore send-killp))
   (f-format :info :server-stop "Shutdown complete~%"))
 ;;;there is no instance where you don't want to send kill if you are the server..
+
+(defmethod remove-con ((obj server) (con connection))
+  (modify-server obj
+    (remhash (connection-name con) (current-connections obj))
+    (delete con (current-connections-array obj) :test #'eq)))
+
 (defmethod shutdown ((obj server) &optional send-killp)
   "shuts down all the connections that the server is managing"
-  (declare (ignore send-killp))
+  ;;  (declare (ignore send-killp))
   (let ((table (current-connections obj)))
     (maphash (lambda (key val)
-               (shutdown val t)
-               (remhash key table))
+               (declare (ignore key))
+               (shutdown val (if send-killp
+                                 t
+                                 nil))
+               (remove-con obj val))
              table))
   (with-accessors  ((receive-connections receive-connections-function)
                     (process-packets process-packets-function)
@@ -260,6 +280,7 @@ array"
 (defmethod get-current-connection-by-name ((obj server) client-name)
   (let ((connections (current-connections obj)))
     (gethash client-name connections)))
+
 (defmethod get-current-connections-object ((obj server) client-name)
   "returns the connection object associated with client-name"
   (get-current-connection-by-name obj client-name))

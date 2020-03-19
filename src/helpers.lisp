@@ -195,3 +195,6 @@
          :do (progn ,@body)
          :finally (progn ,@do-finally)))
 
+(defmacro modify-server (server &body body)
+  `(bt:with-lock-held ((modification-lock ,server))
+     ,@body))
