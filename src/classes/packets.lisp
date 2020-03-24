@@ -24,20 +24,24 @@
     :accessor op
     :initarg :op
     :initform :op-not-set)))
+
 (defmethod recipient* (object)
   (c2s-c (slot-value object 'recipient)))
 (defmethod header* (object)
   (c2s-c (slot-value object 'header)))
 (defmethod footer* (object)
   (c2s-c (slot-value object 'footer)))
+
 (defmethod op* (object)
   (let ((op (slot-value object 'op)))
     (c2s-c (typecase op
              (keyword op)
              (vector (code-char (aref op 0)))
              (t op)))))
+
 (defclass bad-packet ()
   ())
+
 (defclass invalid-packet (bad-packet)
   ((invalid-packet
     :accessor invalid-packet
@@ -46,6 +50,7 @@
     :initform :invalid-packet-not-set))
   (:documentation "Class for holding packets that have for some reason ended up broken,
 perhaps the stream broke mid download."))
+
 (defclass malicious-packet (bad-packet)
   ((malicious-packet
     :accessor malicious-packet
@@ -62,6 +67,7 @@ packets on purpose"))
    (data
     :accessor data
     :initform :data-not-set)))
+
 (defmethod d-len* (object)
   "d-len is supposed to be an actual number, so this handles converting from a byte array to an int"
   (let ((len (slot-value object 'data-length)))
@@ -69,6 +75,7 @@ packets on purpose"))
              (keyword len)
              (vector (aref len 0))
              (t len)))))
+
 (defmethod data* (object)
   (c2s-c (slot-value object 'data)))
 (defmethod sender* (object)
@@ -78,11 +85,14 @@ packets on purpose"))
   ((id
     :accessor id
     :initform :id-not-set)))
+
 (defmethod id* (object)
   (c2s-c (slot-value object 'id)))
+
 (defclass ack-packet (packet)
   ()
   (:documentation "Ack packet"))
+
 (defclass kill-packet (packet)
   ()
   (:documentation "Kill packet doesn't have any special information in it so it just inherits from packet. The reason for its existence is so that methods can dispatch on the class"))
@@ -95,8 +105,10 @@ packets on purpose"))
     :accessor connected?
     :initform :connected?-not-set))
   (:documentation "Packet that indicates when a new client has connected or disconnected"))
+
 (defmethod client-name* (object)
   (c2s-c (slot-value object 'client-name)))
+
 (defmethod connected?* (object)
   (let ((con? (slot-value object 'connected?)))
     (c2s-c (typecase con?

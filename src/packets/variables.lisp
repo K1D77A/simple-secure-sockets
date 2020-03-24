@@ -11,11 +11,17 @@
 
 (defvar-hash %start-header "start")
 (defvar-hash %op-data "d")
+(defvar-hash %op-data-n 100)
 (defvar-hash %op-kill "k")
+(defvar-hash %op-kill-n 107)
 (defvar-hash %op-identify "i")
+(defvar-hash %op-identify-n 105)
 (defvar-hash %op-ack "a")
+(defvar-hash %op-ack-n 97)
 (defvar-hash %stop-footer "stop")
-(defvar-hash %op-clients "c");;this is the op that is sent from server, if a client connects
+(defvar-hash %op-clients "c")
+(defvar-hash %op-clients-n 99)
+;;this is the op that is sent from server, if a client connects
 ;;then the new client is sent to all connections, if a client disconnects then the disconnect is sent
 ;;to all the clients ie (("client1" . 0)) disconnect (("client2" . 1)) connected
 ;;with 500 clients to the server, I wonder if this is gonna cause like a dos effect xD

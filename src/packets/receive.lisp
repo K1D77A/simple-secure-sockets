@@ -6,43 +6,51 @@
 (defun clean-read ()
   (mapcar #'code-char (reverse *read*)))
 
-(defun non-block-read-byte (stream &optional (eof-error-p t) eof-value)
+(defun non-block-read-byte (stream)
   "read byte that is non blocking, if there is nothing to read it simply returns nil"
-  (declare (optimize (speed 3)(safety 0)))
+  (declare (optimize (speed 3)(safety 0))
+           (type stream stream))
   (the (or u-byte boolean)
-       (if (the boolean (listen stream))
-           (let ((byte (the u-byte (read-byte stream eof-error-p eof-value))))
-             (push byte *read*)
-             ;;(forced-format t "~A" byte)
-             byte)
-           nil)))
+       (and (the boolean (listen stream))
+            (let ((byte (the u-byte (read-byte stream t))))
+              ;;(push byte *read*)
+              ;;(forced-format t "~A" byte)
+              (the u-byte byte)))))
+           
+(defconstant +sleep-time+ (the single-float 0.001))
+(defconstant +timeout+ (the u-byte 5))
+(defconstant +increment+ (the fixnum (ceiling  (/ +timeout+ +sleep-time+))))
 
-(defun timed-non-block-read-byte (time stream &optional (eof-error-p t) eof-value (sleep-time 0.001))
-  "This is a non blocking version of read byte which is timed. basically you give it a time and it 
-will loop and check if there is anything on the stream to be read, if not it'll sleep for sleep-time
+(defun timed-non-block-read-byte (stream)
+  "This is a non blocking version of read byte which is timed. loops +increment+ amount of times and checks if there is anything on the stream to be read, if not it'll sleep for +sleep-time+
 if it eventually finds something to read it'll read and then return that byte. if it reaches the 
 timeout it'll signal and error"
-  (let ((byte (non-block-read-byte stream eof-error-p eof-value)))
-    (if byte
-        byte
-        (loop :with increment := (ceiling (/ time sleep-time))
-              :for x :from 1 :to increment
-              :for byte? := (non-block-read-byte stream t) :then (non-block-read-byte stream t)
-              :if byte?
-                :do (return byte?)                    
-              :else
-                :do (sleep sleep-time)
-              :finally (error 'stream-error :stream stream)))))
+  (declare (optimize (speed 3)(safety 0)))
+  (declare (type stream stream))
+  (let ((byte (non-block-read-byte stream)))
+    (or byte
+        (the u-byte
+             (loop :for x fixnum :from 1 :to +increment+
+                   :for byte? := (the (or boolean u-byte) (non-block-read-byte stream))
+                     :then (the (or u-byte boolean) (non-block-read-byte stream))
+                   :if byte?
+                     :do (return byte?)                    
+                   :else
+                     :do (sleep +sleep-time+)
+                   :finally (error 'stream-error :stream stream))))))
 
 (defun read-n-bytes (n stream)
   "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
-  (declare (optimize (speed 3)(safety 0)))
+  (declare (optimize (speed 3)(safety 0))
+           (type fixnum n)
+           (type stream stream))
   (let ((data (the byte-array (make-array n :element-type 'u-byte))))
     (declare (type byte-array data))
-    (dotimes (i n data)
+    (dotimes (i n (the byte-array data))
       (declare (type fixnum i)
                (type fixnum n))
-      (setf (aref data i) (the u-byte (timed-non-block-read-byte 5 stream t))))))
+      (the u-byte 
+           (setf (aref data i) (the u-byte (timed-non-block-read-byte stream)))))))
 
 ;;if a half complete packet is sent, this will simply block...
 ;;if only one thread processes the connections then this means the entire server blocks...
@@ -58,7 +66,7 @@ timeout it'll signal and error"
           (read-sender obj packet)          
           (handle-op obj packet)
           (read-footer obj packet)
-          (print-object packet t)
+          ;;   (print-object packet t)
           packet))
     (stream-error ()
       ;;(write-error c)
@@ -86,22 +94,21 @@ timeout it'll signal and error"
 (defmethod read-op :after ((obj connection)(packet packet))
   (f-format :debug :packet-read  "--OP read. OP: ~A" (op* packet)))
 (defmethod read-op ((obj connection)(packet packet))
-  (let* ((op (the single-byte (read-n-bytes 1 (c-stream obj))))
-         (op-as-string (c2s-c (code-char (aref op 0)))))
-    (setf (op packet) op)
+  (let ((op (the u-byte (timed-non-block-read-byte (c-stream obj)))))
+    (setf (op packet) (make-array 1 :element-type 'u-byte :initial-element op))
     ;;(print-object packet t)
-    (cond ((string=  %op-data op-as-string)
+    (cond ((= %op-data-n op)
            (change-class packet 'data-packet))
-          ((string= %op-ack op-as-string)
+          ((= %op-ack-n op)
            (change-class packet 'ack-packet))
-          ((string=  %op-kill op-as-string)
+          ((= %op-kill-n op)
            (change-class packet 'kill-packet))
-          ((string= %op-identify op-as-string)
+          ((= %op-identify-n op)
            (change-class packet 'identify-packet))
-          ((string= %op-clients op-as-string)
+          ((= %op-clients-n op)
            (change-class packet 'clients-packet))
           (t (broken-packet-error "Packet received is invalid." packet)))))
-;;when packet is wrong it needs to be dropped, this needs to be written
+
 
 (defmethod read-recipient :before ((obj connection) (packet packet))
   (f-format :debug :packet-read  "-Reading recipient "(get-universal-time)))
