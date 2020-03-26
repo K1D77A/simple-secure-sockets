@@ -69,6 +69,7 @@
       ;; (print (all-connection-streams-empty-p server))
       (when (shutdown-connected-server-and-clients server clients)
         (values clients server)))))
+
 (defun shutdown-connected-server-and-clients (server clients &optional (time))
   (declare (ignore time))
   (loop :while (not (or (all-connection-streams-empty-p server)
@@ -116,15 +117,19 @@
        (mapcar #'shutdown ,clients)
        (shutdown ,server)
        ,server)))
+
 (defun test-server (port thread q)
   (make-server "server" "127.0.0.1" port thread q))
+
 (defun test-client (n port)
   (make-client (format nil "client~d" n) "127.0.0.1" port))
+
 (defun send-to-clients-available (client message)
   (mapcar (lambda (cli)
             (unless (equal cli :AVAILABLE-CLIENTS)
               (send client (build-data-packet cli message))))
           (available-clients client)))
+
 (defmethod n-random-recipients ((con client) n)
   "returns a cons whose car is the con and cdr is random list of recipients of length n assuming that
 the available clients is length 2 or more"
@@ -134,6 +139,7 @@ the available clients is length 2 or more"
       (cons con
             (loop :for x :from 1 :to n
                   :collect (elt clients (random len)))))))
+
 (defmethod n-lots-of-x-random-recipients (list-of-clients n x)
   "takes in a list of clients, and creates a new list containing lists created by n-random-recipients"
   (let ((len (length list-of-clients)))
@@ -142,6 +148,7 @@ the available clients is length 2 or more"
           ;;:do (forced-format t "~&oof ~A~%" cl)
           :when (equal (type-of cl) 'client)
             :collect (n-random-recipients cl x))))
+
 (defun send-packets-to-recipients (list-genned)
   (lparallel:pmapcar (lambda (cons)
                        (let ((con (car cons))
@@ -156,6 +163,7 @@ the available clients is length 2 or more"
          (lst (generate-packets (n-lots-of-x-random-recipients clients n-calc n-calc))))
     (forced-format t "Sending ~d packets" n)
     (time (send-packets-to-recipients lst))))
+
 (defun generate-packets (random-recipients-list)
   (let ((data (make-string 10 :initial-element #\o)))
     (forced-format t "~&generating packets~%")
