@@ -198,6 +198,37 @@ which would look like
   "Changes :byte to the value of to"
   (subst to :byte form))
 
+(defvar *lambda-table* (make-hash-table :test #'equal))
+(defvar *state-table* (make-hash-table :test #'equal))
+
+(defun check-if-forms-states-exists (form)
+  (let ((state (gethash form *state-table*)))
+    (if state
+        state
+        nil)))
+
+(defun check-if-forms-lambda-exists (form)
+  (let ((lambda (gethash form *lambda-table*)))
+    (if lambda
+        lambda
+        nil)))
+
+(defun generate-states-and-store (form)
+  (setf (gethash form *state-table*)
+        (generate-state form)))
+
+(defun generate-n-states-and-store (n form)
+  (setf (gethash (list n form) *state-table*)
+        (generate-n-read-state n form)))
+
+(defun compile-and-store (form)
+  (setf (gethash form *lambda-table*)
+        (compile nil (generate-lambda-based-on-form form))))
+
+(defun compile-and-store-n-forms (n form)
+  (setf (gethash (list n form) *lambda-table*)
+        (compile nil (generate-lambda-do-form-n-times n form))))
+
 (defun generate-lambda-based-on-form (form)
   `(lambda (stream)
      (tlet ((byte (or boolean u-byte)
@@ -208,6 +239,7 @@ which would look like
            byte
            (signal-validation-failed-error "failed to validate form" ',form byte
                                            ',form)))))
+
 
 (defun generate-lambda-do-form-n-times (n form)
   `(lambda (stream)
@@ -222,20 +254,37 @@ which would look like
            (if ,(change-byte form 'byte)
                (setf (aref results x) byte)
                (signal-failed-to-parse-complete-fsm "failed to read all bytes" ,n x results)))))))
-                                               
-                      
 
 (defun generate-lambdas-and-states-from-forms (forms)
   "Takes in a list of forms like '((eq :byte 115)(eq :byte 116)) and generates a new plist like
 '(:lambda <generate-lambda-based-on-form> "
   (mapcar (lambda (form)
-            (append (generate-state form)
-                    (list :lambda (compile nil (generate-lambda-based-on-form  form)))))
+            (tlet* ((state? (or list boolean)
+                            (check-if-forms-states-exists form))
+                    (lambda? (or function boolean)
+                             (check-if-forms-lambda-exists form)))
+              (append (if state?
+                          state?
+                          (generate-states-and-store form))
+                      (list :lambda
+                            (if lambda?
+                                lambda?
+                                (compile-and-store form))))))
           forms))
 
 (defun generate-n-lambda-and-state (n form)
-  (append (generate-n-read-state n form)
-          (list :lambda (compile nil (generate-lambda-do-form-n-times n form)))))
+  (append
+   (tlet* ((state? (or list boolean)
+                   (check-if-forms-states-exists (list n form)))
+           (lambda? (or function boolean)
+                    (check-if-forms-lambda-exists (list n form))))
+     (append (if state?
+                 state?
+                 (generate-n-states-and-store n form))
+             (list :lambda
+                   (if lambda?
+                       lambda?
+                       (compile-and-store-n-forms n form)))))))
 
 
 ;; "Takes in a form like '(eq :byte 116) and generates a lambda that takes 1 argument, an '(unsigned-byte 8) stream, this lambda will read a byte from that stream and check whether the byte read is , where the keyword :byte is substituted with the value read
