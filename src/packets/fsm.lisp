@@ -62,6 +62,44 @@
          :received received
          :form-executed form))
 
+(define-condition failed-to-parse-complete-fsm (error)
+  ((message
+    :initarg :message
+    :accessor message
+    :initform :not-set
+    :documentation "Message indicating what when wrong")
+   (len
+    :initarg :len
+    :accessor len
+    :initform :len-not-set
+    :documentation "The total number of read-bytes to be attempted")
+   (failed-at
+    :initarg :failed-at
+    :accessor failed-at
+    :initform :failed-at-not-set
+    :documentation "How many read-bytes were attempted before failure")
+   (received
+    :initarg :received
+    :accessor received
+    :initform :not-set
+    :documentation "what was successfully received")))
+
+(defmethod print-object ((object failed-to-parse-complete-fsm) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S~%Total to be attempted: ~A~%Failed at n: ~A~%Total received: ~S~%"
+            (message object)
+            (len object)
+            (failed-at object)
+            (received object))))
+            
+
+(defun signal-failed-to-parse-complete-fsm (message len failed-at received)
+  (error 'failed-to-parse-complete-fsm
+         :message message
+         :len len
+         :received received 
+         :failed-at failed-at))
+
 (defclass micro-finite-state-machine ()
   ((states-and-lambdas
     :reader states-and-lambdas
@@ -88,20 +126,31 @@
             (result object)
             (final-condition object))))
 
-(defun make-micro-finite-state-machine-for-string (string)
-  (let* ((form (string-to-microfsm-form string))
-         (states-and-lambdas (generate-lambdas-and-states-from-forms form)))
-    (make-instance 'micro-finite-state-machine
-                   :states-and-lambdas states-and-lambdas
-                   :current-state "inactive"
-                   :len (length states-and-lambdas)
-                   :result (make-array (length states-and-lambdas)
-                                       :initial-element 0
-                                       :element-type '(unsigned-byte 8)))))
+(defun make-micro-fsm (states-and-lambdas)
+  (make-instance 'micro-finite-state-machine
+                 :states-and-lambdas states-and-lambdas
+                 :current-state "inactive"
+                 :len (length states-and-lambdas)
+                 :result (make-array (length states-and-lambdas)
+                                     :element-type '(unsigned-byte 8))))
 
-(defparameter *data-fsm* '((if (numberp :byte)
-                               (and (less-than-or-equal 255 :byte)
-                                    (greaterthan-or-equal 0 :byte)))))
+(defun make-micro-fsm-for-string (string)
+  (tlet* ((form list (string-to-microfsm-form string))
+          (states-and-lambdas list (generate-lambdas-and-states-from-forms form)))
+    (make-micro-fsm states-and-lambdas)))
+
+(defun make-micro-fsm-from-form (form)
+  (tlet ((states-and-lambdas list (generate-lambdas-and-states-from-forms form)))
+    (make-micro-fsm states-and-lambdas)))
+
+(defun make-micro-fsm-to-read-n-chars (n)
+  (tlet ((states-and-lambdas list (list  (generate-n-lambda-and-state n +valid-char-form+))))
+    (make-micro-fsm states-and-lambdas)))
+
+(defconstant +valid-char-form+ '(numberp :byte))
+(defparameter *data-fsm* '((and (numberp :byte)
+                            (<= :byte 255)
+                            (<= 0 :byte))))
 
 (defparameter *next-data-fsm* (make-list 100 :initial-element '(char= :byte)))
 (defparameter *header-fsm* ;header is "start"
@@ -124,6 +173,10 @@ to be done by hand"
   (list :try (format nil "trying ~S" form)
         :tried (format nil "tried ~S" form)))
 
+(defun generate-n-read-state (n form)
+  (list :try (format nil "trying ~S ~D times" form n)
+        :tried (format nil "tried ~S ~D times" form n)))
+
 (defun generate-states (forms)
   "When given a list of forms like '((eq :byte 115)(eq :byte 116)) returns a list of the same length
 which would look like 
@@ -139,11 +192,30 @@ which would look like
 
 (defun generate-lambda-based-on-form (form)
   `(lambda (stream)
-     (tlet ((byte (or boolean u-byte) (timed-non-block-read-byte stream)))
+     (tlet ((byte (or boolean u-byte)
+                  (handler-case (timed-non-block-read-byte stream)
+                    (stream-error ()
+                      nil))))
        (if ,(change-byte form 'byte)
            byte
            (signal-validation-failed-error "failed to validate form" ',form byte
                                            ',form)))))
+
+(defun generate-lambda-do-form-n-times (n form)
+  `(lambda (stream)
+     (tlet ((results byte-array (make-array ,n :element-type '(unsigned-byte 8))))
+       (dotimes (x ,n results)
+         (tlet ((byte (or boolean u-byte)
+                      (handler-case (timed-non-block-read-byte stream)
+                        (stream-error ()
+                          nil))))
+           ;;this will return nil if it catches the error thrown by
+           ;;timed non-block-read-byte and then the if will throw a new error for the fsm to catch
+           (if ,(change-byte form 'byte)
+               (setf (aref results x) byte)
+               (signal-failed-to-parse-complete-fsm "failed to read all bytes" ,n x results)))))))
+                                               
+                      
 
 (defun generate-lambdas-and-states-from-forms (forms)
   "Takes in a list of forms like '((eq :byte 115)(eq :byte 116)) and generates a new plist like
@@ -152,6 +224,10 @@ which would look like
             (append (generate-state form)
                     (list :lambda (compile nil (generate-lambda-based-on-form  form)))))
           forms))
+
+(defun generate-n-lambda-and-state (n form)
+  (append (generate-n-read-state n form)
+          (list :lambda (compile nil (generate-lambda-do-form-n-times n form)))))
 
 
 ;; "Takes in a form like '(eq :byte 116) and generates a lambda that takes 1 argument, an '(unsigned-byte 8) stream, this lambda will read a byte from that stream and check whether the byte read is , where the keyword :byte is substituted with the value read
@@ -174,7 +250,7 @@ which would look like
   (sixth form))
 
 (defun test-micro-fsm (fsm)
-  (with-open-file (stream "packets/testfsm" :element-type '(unsigned-byte 8))    
+  (with-open-file (stream "testfsm" :element-type '(unsigned-byte 8))    
     (read-from-stream fsm stream)))
 
 (defmethod change-state ((fsm micro-finite-state-machine) newstate)
@@ -202,9 +278,11 @@ which would look like
             (mapcar (lambda (state-n-lambda)
                       (the list state-n-lambda)
                       (change-state micro-fsm (get-try state-n-lambda))
-                      (setf (aref result iter)
-                            (the u-byte
-                                 (funcall (the function (get-lambda state-n-lambda)) stream)))
+                      (tlet* ((func function (get-lambda state-n-lambda))
+                              (byte (or boolean u-byte) (funcall func stream)))
+                        (print byte)
+                        (setf (aref result iter)
+                              byte))
                       (incf iter)
                       (change-state micro-fsm (get-tried state-n-lambda)))
                     parser)
@@ -213,22 +291,59 @@ which would look like
         (validation-failed-error (e)
           (change-state micro-fsm "error")
           (setf final-condition e)
+          micro-fsm)
+        (failed-to-parse-complete-fsm (e)
+          (change-state micro-fsm "error")
+          (setf final-condition e)
           micro-fsm))))
   micro-fsm)
 
+;; (defclass macro-finite-state-machine ()
+;;   ((list-of-micro-fsm
+;;     :accessor list-of-macro-fsm
+;;     :initarg :list-of-macro-fsm
+;;     :type list)
+;;    (current-state
+;;     :accessor current-state
+;;     :initform "inactive")
+;;    (current-micro-fsm
+;;     :accessor current-micro-fsm
+;;     :type micro-finite-state-machine)
+;;    (final-condition
+;;     :accessor final-condition
+;;     :type condition)
+;;    (fsm-results
+;;     :accessor fsm-results
+;;     :type list))
+;;   (:documentation "This class is used to execute many micro-fsm's at once to parse a complete
+;; stream"))
+
+;; (defun generate-meta-state (micro-fsm)
+;;   (list :macro-try (format nil "trying micro-fsm: ~S" micro-fsm)
+;;         :macro-tried (format nil "tried micro-fsm: ~S" micro-fsm)))
+
+;; (defun generate-meta-states (list-of-micro-fsm)
+;;   (mapcar (lambda (mi-fsm)
+;;             (append (generate-meta-state list-of-micro-fsm)
+;;                     (list :micro-fsm mi-fsm)))
+;;           list-of-micro-fsm))
 
 
 
 
 
-#|
-a state machine for reading the string "start" would be like so
-state = idle reading-s reading-t reading-a reading-r reading-t done errored
-condition = any error encountered this will have to be caught and put into the fsm
-to transition would be
-reading-s then check if it is equal to s, if so then change state to reading t, accumulate
-and continue. can check if valid with lambdas ie
-(lambda (s)
-(equal s "s")) 
-or #\s or char-code of #\s etc each can be generated automatically
-|#
+
+
+
+;; #|
+;; a state machine for reading the string "start" would be like so
+;; state = idle reading-s reading-t reading-a reading-r reading-t done errored
+;; condition = any error encountered this will have to be caught and put into the fsm
+;; to transition would be
+;; reading-s then check if it is equal to s, if so then change state to reading t, accumulate
+;; and continue. can check if valid with lambdas ie
+;; (lambda (s)
+;; (equal s "s")) 
+;; or #\s or char-code of #\s etc each can be generated automatically
+;; |#
+
