@@ -24,7 +24,9 @@
   (if (member level *debug-levels*)
       (setf *debug-level* level)
       (error 'type-error :datum level :expected-type *debug-levels*)))
+
 (defconstant +format-func+ (formatter "~&[~S][~S]"))
+
 (defun conc-level-prefix-and-control-string (level prefix control-string)
   (declare (inline conc-level-prefix-and-control-string))
   (concatenate 'string (apply +format-func+ (list nil level prefix))
@@ -121,6 +123,10 @@
 
 (defun string-to-keyword (string)
   (intern string :keyword))
+
+(defun make-string-len (string len)
+  "takes in a string and appends nulls to the end to make it len"
+  (concatenate 'string string (make-string (- len (length string)) :initial-element #\Nul)))
 
 (defun set-threads-to-std-out ()
   (setf bt:*default-special-bindings*;;this sets the var of standard out for the threads

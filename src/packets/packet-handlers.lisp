@@ -21,14 +21,18 @@ SERVER handlers
     (when (and recipient connection);;currently just drops packet if can't find the recipient in the
       ;;current connections hash-table
       (forward connection packet))))
+
 (defun forward (connection packet)
   (send connection packet))
+
 (defmethod handle-packet ((obj server) packet)
   (forced-format t "Not implemented~%")
   :NOT-IMPLEMENTED)
+
 (defmethod handle-packet ((obj server) bad-packet)
   (forced-format t "~& server bad-packet received~%")
   :NOT-IMPLEMENTED)
+
 (defmethod handle-packet ((obj server) (packet kill-packet))
   (let* ((sendr (sender* packet))
          (connection (get-current-connection-by-name obj sendr)))
@@ -79,6 +83,7 @@ CLIENT handlers
           (t (broken-packet-error
               "The value of the connected? slot in packet is neither  0 or 1"
               packet)))))
+
 (defmethod handle-packet ((obj client) bad-packet)
   (forced-format t "~&client bad-packet received~%")
   :NOT-IMPLEMENTED)

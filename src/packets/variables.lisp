@@ -38,17 +38,27 @@
 (deftype u-byte () '(integer 0 255))
 
 
-(defparameter *start-header-mfsm* (make-micro-finite-state-machine-for-string %start-header))
-(defparameter *data-header-mfsm* (make-micro-finite-state-machine-for-string %op-data))
-(defparameter *kill-header-mfsm* (make-micro-finite-state-machine-for-string %op-kill))
-(defparameter *identify-header-mfsm* (make-micro-finite-state-machine-for-string %op-identify))
-(defparameter *ack-header-mfsm* (make-micro-finite-state-machine-for-string %op-ack))
-(defparameter *stop-footer-mfsm* (make-micro-finite-state-machine-for-string %stop-footer))
-(defparameter *clients-header-mfsm* (make-micro-finite-state-machine-for-string %op-clients))
-
-(defparameter *kill-recipient-mfsm* (make-micro-finite-state-machine-for-string %kill-recipient))
+(defparameter *start-header-mfsm* (make-micro-fsm-for-string %start-header))
+(defparameter *stop-footer-mfsm* (make-micro-fsm-for-string %stop-footer))
+(defparameter *valid-ops-form*
+  (generate-character-check-form (mapcar (lambda (string)
+                                           (aref string 0))
+                                         (list %op-data
+                                               %op-ack
+                                               %op-kill
+                                               %op-clients
+                                               %op-identify))))
+(defparameter *kill-recipient-mfsm* (make-micro-fsm-for-string %kill-recipient))
 (defparameter *identify-recipient-mfsm*
-  (make-micro-finite-state-machine-for-string %identify-recipient))
-(defparameter *ack-recipient-mfsm* (make-micro-finite-state-machine-for-string %ack-recipient))
-(defparameter *clients-recipient-mfsm* (make-micro-finite-state-machine-for-string %clients-recipient))
+  (make-micro-fsm-for-string %identify-recipient))
+(defparameter *data-recipient-mfsm*
+  (make-micro-fsm-to-read-n-chars %connection-name-len))
+(defparameter *con-name-len-mfsm* *data-recipient-mfsm*)
+(defparameter *ack-recipient-mfsm* (make-micro-fsm-for-string %ack-recipient))
+(defparameter *clients-recipient-mfsm* (make-micro-fsm-for-string %clients-recipient))
+(defparameter *valid-len-form* '((and (numberp :byte)
+                                  (<= :byte 255)
+                                  (<= 0 :byte))))
+(defparameter *clients-valid-con-form* '((or (eq :byte 1)
+                                          (zerop :byte))))
 

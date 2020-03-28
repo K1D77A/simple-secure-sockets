@@ -96,7 +96,7 @@
                                              (done-processing-p server)))
                              :do (sleep 0.001)
                              :finally (setf now (- (get-internal-run-time) now))
-                                      (sleep 1)
+                                      (sleep 5)
                                       (handler-case
                                           (progn ;;(mapcar #'shutdown clients)
                                             (sleep 1)
@@ -109,7 +109,7 @@
                                         (error ()
                                           (shutdown server)
                                           (return t)))))
-                 (values (elt clients 0) server))))))
+                 (values clients server))))))
 
 (defmacro clean-shutdown-server-and-clients (server clients &body body)
   `(handler-case ,@body

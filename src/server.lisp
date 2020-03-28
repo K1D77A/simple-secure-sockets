@@ -99,7 +99,7 @@
     (sb-ext:atomic-incf (car *moved-packets*))
     (lparallel.queue:push-queue packet q)))
 
-
+(defparameter *packets-downloaded* (cons 0 nil))
 (defmethod download-push-to-queue ((obj server)(connection con-to-server))
   "Downloads all the packets available on a connection until (listen (c-stream connection)) 
 returns nil and pushes them onto the queue associated with connection.
@@ -108,10 +108,13 @@ is returned"
   (let ((stream (c-stream connection)))
     (handler-case
         (while-finally-loop (listen stream) ((return :DONE))
-            ((let ((packet (download-sequence connection)))
+            ((let ((packet (time (download-sequence-fsm connection))))
+               (sb-ext:atomic-incf (car *packets-downloaded*))
                (if (equal packet :EOF)
-                   (return :EOF)
-                   (push-to-packet-queue obj connection packet)))))
+                   (progn (print :eof)
+                          (return :EOF))
+                   (progn (forced-format t "~&pushing~%")
+                          (push-to-packet-queue obj connection packet))))))
       (stream-error () :EOF)
       (TYPE-ERROR () :EOF))))
 
@@ -145,7 +148,7 @@ is returned"
         ;;and then use that
         ;;key in the current-connections hash-table
         (f-format :debug :server-receive   "------WAITING ON IDENTIFY-------")
-        (let ((identify-packet (download-sequence current-connection)))        
+        (let ((identify-packet (download-sequence-fsm current-connection)))        
           (f-format :debug :server-receive  "-----A PACKET HAS BEEN RECEIVED-------~%")
           (if (equal (type-of identify-packet) 'identify-packet)
               (let ((id (id* identify-packet)))
@@ -193,7 +196,7 @@ array"
   ;;(find-and-kill-thread (processor-name obj))
   (when send-killp
     (send obj (build-kill-packet)))
-  (let ((pack (download-sequence obj)))
+  (let ((pack (download-sequence-fsm obj)))
     ;;even if there is an error and :EOF is returned just kill the connection
     (when (or (equal (type-of pack) 'ack-packet) (equal pack :EOF))
       (safe-socket-close (c-socket obj))
@@ -213,7 +216,7 @@ array"
 (defmethod remove-con ((obj server) (con connection))
   (modify-server obj
     (remhash (connection-name con) (current-connections obj))
-    (delete con (current-connections-array obj) :test #'eq)))
+    (delete con (current-connections-array obj) :test #'equal)))
 
 (defmethod shutdown ((obj server) &optional send-killp)
   "shuts down all the connections that the server is managing"

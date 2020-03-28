@@ -22,6 +22,19 @@
 
 
 
+(defconstant +valid-char-form+ '(numberp :byte))
+
+(defparameter *data-fsm* '((and (numberp :byte)
+                            (<= :byte 255)
+                            (<= 0 :byte))))
+
+(defparameter *next-data-fsm* (make-list 100 :initial-element '(char= :byte)))
+(defparameter *header-fsm* ;header is "start"
+  '((eq :byte 115)
+    (eq :byte 116)
+    (eq :byte 97)
+    (eq :byte 114)
+    (eq :byte 116)))
 
 
 
@@ -146,19 +159,14 @@
 (defun make-micro-fsm-to-read-n-chars (n)
   (tlet ((states-and-lambdas list (list  (generate-n-lambda-and-state n +valid-char-form+))))
     (make-micro-fsm states-and-lambdas)))
+(defun generate-character-check-form (list-of-chars)
+  "takes in a list of characters and generates a form which makes sure that byte downloaded is
+one of the chars in list-of-chars"
+  (list (cons 'or (mapcar (lambda (char)
+                            (list 'eq :byte (char-code char)))
+                          list-of-chars))))
 
-(defconstant +valid-char-form+ '(numberp :byte))
-(defparameter *data-fsm* '((and (numberp :byte)
-                            (<= :byte 255)
-                            (<= 0 :byte))))
 
-(defparameter *next-data-fsm* (make-list 100 :initial-element '(char= :byte)))
-(defparameter *header-fsm* ;header is "start"
-  '((eq :byte 115)
-    (eq :byte 116)
-    (eq :byte 97)
-    (eq :byte 114)
-    (eq :byte 116)))
 
 (defun string-to-microfsm-form (string)
   "convenience function to quickly generate the micro-fsm based on a string, more complicated have 
@@ -256,8 +264,8 @@ which would look like
 (defmethod change-state ((fsm micro-finite-state-machine) newstate)
   (setf (current-state fsm) newstate))
 
-(defmethod change-state :before (fsm newstate)
-  (format t "~&changing state ~A" newstate))
+(defmethod change-state :before (fsm newstate))
+;;  (f-format t "~&changing state ~A" newstate))
 
 (defun reset-mfsm (fsm)
   (change-state fsm "inactive")
@@ -279,10 +287,10 @@ which would look like
                       (the list state-n-lambda)
                       (change-state micro-fsm (get-try state-n-lambda))
                       (tlet* ((func function (get-lambda state-n-lambda))
-                              (byte (or boolean u-byte) (funcall func stream)))
-                        (print byte)
-                        (setf (aref result iter)
-                              byte))
+                              (byte (or boolean u-byte byte-array) (funcall func stream)))
+                        (typecase byte
+                          (integer (setf (aref result iter) byte))
+                          (simple-array (setf result byte))))
                       (incf iter)
                       (change-state micro-fsm (get-tried state-n-lambda)))
                     parser)
@@ -298,6 +306,11 @@ which would look like
           micro-fsm))))
   micro-fsm)
 
+(defun successful-execution-p (micro-fsm)
+  (if (equal (final-condition micro-fsm) "success")
+      t
+      nil))
+      
 ;; (defclass macro-finite-state-machine ()
 ;;   ((list-of-micro-fsm
 ;;     :accessor list-of-macro-fsm
