@@ -1,40 +1,11 @@
 ;;;;this file contains the implementations of finite state machines that will be used for parsing
 (in-package :simple-secure-sockets)
-;; (defvar-hash %start-header "start")
-;; (defvar-hash %op-data "d")
-;; (defvar-hash %op-kill "k")
-;; (defvar-hash %op-identify "i")
-;; (defvar-hash %op-ack "a")
-;; (defvar-hash %stop-footer "stop")
-;; (defvar-hash %op-clients "c");;this is the op that is sent from server, if a client connects
-;; ;;then the new client is sent to all connections, if a client disconnects then the disconnect is sent
-;; ;;to all the clients ie (("client1" . 0)) disconnect (("client2" . 1)) connected
-;; ;;with 500 clients to the server, I wonder if this is gonna cause like a dos effect xD
-;; ;;I'm not sure if this is the most efficient way to do this.
-;; (defvar-hash %connection-name-len 16);bytes
-;; (defvar-hash %kill-recipient "iwanttodieplease")
-;; (defvar-hash %identify-recipient "letmeidentifyplz")
-;; (defvar-hash %ack-recipient "acknowledgemeplz")
-;; (defvar-hash %clients-recipient "hereditament")
-;; (defvar-hash %max-data-size 255);1byte len
-;;the above is just here for reference.
-;;(declaim (optimize (speed 3) (safety 1)))
-
-
 
 (defconstant +valid-char-form+ '(numberp :byte))
 
-(defparameter *data-fsm* '((and (numberp :byte)
-                            (<= :byte 255)
-                            (<= 0 :byte))))
+(defvar *lambda-table* (make-hash-table :test #'equal))
+(defvar *state-table* (make-hash-table :test #'equal))
 
-(defparameter *next-data-fsm* (make-list 100 :initial-element '(char= :byte)))
-(defparameter *header-fsm* ;header is "start"
-  '((eq :byte 115)
-    (eq :byte 116)
-    (eq :byte 97)
-    (eq :byte 114)
-    (eq :byte 116)))
 
 
 
@@ -157,16 +128,15 @@
     (make-micro-fsm states-and-lambdas)))
 
 (defun make-micro-fsm-to-read-n-chars (n)
-  (tlet ((states-and-lambdas list (list  (generate-n-lambda-and-state n +valid-char-form+))))
+  (tlet ((states-and-lambdas list (list (generate-n-lambda-and-state n +valid-char-form+))))
     (make-micro-fsm states-and-lambdas)))
+
 (defun generate-character-check-form (list-of-chars)
   "takes in a list of characters and generates a form which makes sure that byte downloaded is
 one of the chars in list-of-chars"
   (list (cons 'or (mapcar (lambda (char)
                             (list 'eq :byte (char-code char)))
                           list-of-chars))))
-
-
 
 (defun string-to-microfsm-form (string)
   "convenience function to quickly generate the micro-fsm based on a string, more complicated have 
@@ -198,39 +168,52 @@ which would look like
   "Changes :byte to the value of to"
   (subst to :byte form))
 
-(defvar *lambda-table* (make-hash-table :test #'equal))
-(defvar *state-table* (make-hash-table :test #'equal))
+
+;;;memoization functions
+
+(defun check-in-table (var table)
+  ;;just to make things more obvious
+  "checks if var is in table."
+  (declare (inline check-in-table))
+  (gethash var table))
 
 (defun check-if-forms-states-exists (form)
-  (let ((state (gethash form *state-table*)))
-    (if state
-        state
-        nil)))
+  (declare (inline check-if-forms-states-exists))
+  (check-in-table form *state-table*))
 
 (defun check-if-forms-lambda-exists (form)
-  (let ((lambda (gethash form *lambda-table*)))
-    (if lambda
-        lambda
-        nil)))
+  (declare (inline check-if-forms-lambda-exists))
+  (check-in-table form *lambda-table*))
 
 (defun generate-states-and-store (form)
+  (declare (inline generate-states-and-store))
   (setf (gethash form *state-table*)
         (generate-state form)))
 
 (defun generate-n-states-and-store (n form)
+  (declare (inline generate-n-states-and-store))
   (setf (gethash (list n form) *state-table*)
         (generate-n-read-state n form)))
 
 (defun compile-and-store (form)
+  (declare (inline compile-and-store))
   (setf (gethash form *lambda-table*)
         (compile nil (generate-lambda-based-on-form form))))
 
 (defun compile-and-store-n-forms (n form)
+  (declare (inline compile-and-store))
   (setf (gethash (list n form) *lambda-table*)
         (compile nil (generate-lambda-do-form-n-times n form))))
 
+
+
 (defun generate-lambda-based-on-form (form)
+  "generates a lambda that when compiled can be used to read from a byte stream. form is a list like
+'((eq :byte 111)) 111 is an ascii character code and :byte is replaced with the downloaded byte. 
+The lambda will call the form with :byte replaced with the byte and if true, return the byte,
+if not true it will signal a validation-failed-error"
   `(lambda (stream)
+     (declare (optimize (speed 3)(safety 1)))
      (tlet ((byte (or boolean u-byte)
                   (handler-case (timed-non-block-read-byte stream)
                     (stream-error ()
@@ -240,9 +223,11 @@ which would look like
            (signal-validation-failed-error "failed to validate form" ',form byte
                                            ',form)))))
 
-
 (defun generate-lambda-do-form-n-times (n form)
+  "The same as 'generate-lambda-based-on-form' except will loop n times reading a new byte each time
+and will check each new byte with form the same as in 'generate-lambda-based-on-form"
   `(lambda (stream)
+     (declare (optimize (speed 3)(safety 1)))
      (tlet ((results byte-array (make-array ,n :element-type '(unsigned-byte 8))))
        (dotimes (x ,n results)
          (tlet ((byte (or boolean u-byte)
@@ -256,8 +241,9 @@ which would look like
                (signal-failed-to-parse-complete-fsm "failed to read all bytes" ,n x results)))))))
 
 (defun generate-lambdas-and-states-from-forms (forms)
-  "Takes in a list of forms like '((eq :byte 115)(eq :byte 116)) and generates a new plist like
-'(:lambda <generate-lambda-based-on-form> "
+  "Takes in a list of forms like '((eq :byte 115)) and generates a new plist like
+ ((:try 'trying (eq :byte 111)' :tried 'tried (eq :byte 111)' :lambda <lambda func>))"
+  (declare (optimize (speed 3)(safety 1)))
   (mapcar (lambda (form)
             (tlet* ((state? (or list boolean)
                             (check-if-forms-states-exists form))
@@ -273,30 +259,25 @@ which would look like
           forms))
 
 (defun generate-n-lambda-and-state (n form)
-  (append
-   (tlet* ((state? (or list boolean)
-                   (check-if-forms-states-exists (list n form)))
-           (lambda? (or function boolean)
-                    (check-if-forms-lambda-exists (list n form))))
-     (append (if state?
-                 state?
-                 (generate-n-states-and-store n form))
-             (list :lambda
-                   (if lambda?
-                       lambda?
-                       (compile-and-store-n-forms n form)))))))
-
-
-;; "Takes in a form like '(eq :byte 116) and generates a lambda that takes 1 argument, an '(unsigned-byte 8) stream, this lambda will read a byte from that stream and check whether the byte read is , where the keyword :byte is substituted with the value read
-;; from the stream, if it is true then the byte is returned, if not a condition of type 
-;; 'validation-failed-error is signalled"
-
-
-;;https://termbin.com/ijj6g
-
+  "The same as 'generate-lambdas-and-states-from-forms' but is used for generating lambdas that
+loop over a form"
+  (declare (optimize (speed 3)(safety 1)))
+  (tlet* ((state? (or list boolean)
+                  (check-if-forms-states-exists (list n form)))
+          (lambda? (or function boolean)
+                   (check-if-forms-lambda-exists (list n form))))
+    (append (if state?
+                state?
+                (generate-n-states-and-store n form))
+            (list :lambda
+                  (if lambda?
+                      lambda?
+                      (compile-and-store-n-forms n form))))))
 
 (defun generate-lambdas-based-on-forms (forms)
-  "Takes in a list of char-codes and generates a list functions to validate that same list"
+  "Takes in a form like '((eq :byte 116)) and generates a lambda that takes 1 argument, an '(unsigned-byte 8) stream, this lambda will read a byte from that stream and check whether the byte read is valid by doing (if form byte <error>) where the keyword :byte is substituted with the
+ byte read from the stream. if it is true then the byte is returned, if not a condition of type 
+   'validation-failed-error is signalled"
   (mapcar #'generate-lambda-based-on-form forms))
 
 (defun get-try (form)
@@ -322,37 +303,46 @@ which would look like
   (setf (result fsm) (make-array (len fsm) :initial-element 0 :element-type '(unsigned-byte 8))))
 
 (defun read-from-stream (micro-fsm stream)
-  ;; (declare (optimize (speed 3)(safety 1)))
+  "Uses a micro-fsm to read from a stream"
+  (declare (optimize (speed 3)(safety 1)))
   (with-accessors ((parser states-and-lambdas)
                    (result result)
                    (len len)
                    (final-condition final-condition))
       micro-fsm
-    (the byte-array result)
-    (let ((iter (the fixnum 0)))
-      (handler-case
-          (progn 
-            (mapcar (lambda (state-n-lambda)
-                      (the list state-n-lambda)
-                      (change-state micro-fsm (get-try state-n-lambda))
-                      (tlet* ((func function (get-lambda state-n-lambda))
-                              (byte (or boolean u-byte byte-array) (funcall func stream)))
-                        (typecase byte
-                          (integer (setf (aref result iter) byte))
-                          (simple-array (setf result byte))))
-                      (incf iter)
-                      (change-state micro-fsm (get-tried state-n-lambda)))
-                    parser)
-            (change-state micro-fsm "done")
-            (setf final-condition "success"))
-        (validation-failed-error (e)
-          (change-state micro-fsm "error")
-          (setf final-condition e)
-          micro-fsm)
-        (failed-to-parse-complete-fsm (e)
-          (change-state micro-fsm "error")
-          (setf final-condition e)
-          micro-fsm))))
+    ;;    (tlet ((iter fixnum 0))
+    (handler-case
+        (progn
+          (loop :for s-n-l list :in parser
+                :for x fixnum := 0 :then (1+ x)
+                :do (change-state micro-fsm (get-try s-n-l))
+                    (tlet* ((func function (get-lambda s-n-l))
+                            (byte (or boolean u-byte byte-array) (funcall func stream)))
+                      (typecase byte
+                        (integer (setf (aref result x) byte))
+                        (simple-array (setf result byte))))
+                    (change-state micro-fsm (get-tried s-n-l)))
+          ;; (mapcar (lambda (state-n-lambda)
+          ;;           (the list state-n-lambda)
+          ;;           (change-state micro-fsm (get-try state-n-lambda))
+          ;;           (tlet* ((func function (get-lambda state-n-lambda))
+          ;;                   (byte (or boolean u-byte byte-array) (funcall func stream)))
+          ;;             (typecase byte
+          ;;               (integer (setf (aref result iter) byte))
+          ;;               (simple-array (setf result byte))))
+          ;;           (incf iter)
+          ;;           (change-state micro-fsm (get-tried state-n-lambda)))
+          ;;         parser)
+          (change-state micro-fsm "done")
+          (setf final-condition "success"))
+      (validation-failed-error (e)
+        (change-state micro-fsm "error")
+        (setf final-condition e)
+        micro-fsm)
+      (failed-to-parse-complete-fsm (e)
+        (change-state micro-fsm "error")
+        (setf final-condition e)
+        micro-fsm)))
   micro-fsm)
 
 (defun successful-execution-p (micro-fsm)

@@ -79,6 +79,7 @@
     (setf lparallel:*kernel*
           (lparallel:make-kernel thread-count
                                  :name (format nil "[~A]:process-connections-kernel" name)))))
+
 (defmethod start-queue-threads ((obj server))
   "starts up a thread for each queue and returns a list of all those threads"
   (setf (process-packets-function obj)
@@ -99,7 +100,6 @@
     (sb-ext:atomic-incf (car *moved-packets*))
     (lparallel.queue:push-queue packet q)))
 
-(defparameter *packets-downloaded* (cons 0 nil))
 (defmethod download-push-to-queue ((obj server)(connection con-to-server))
   "Downloads all the packets available on a connection until (listen (c-stream connection)) 
 returns nil and pushes them onto the queue associated with connection.
@@ -108,13 +108,10 @@ is returned"
   (let ((stream (c-stream connection)))
     (handler-case
         (while-finally-loop (listen stream) ((return :DONE))
-            ((let ((packet (time (download-sequence-fsm connection))))
-               (sb-ext:atomic-incf (car *packets-downloaded*))
+            ((let ((packet (download-sequence-fsm connection)))
                (if (equal packet :EOF)
-                   (progn (print :eof)
-                          (return :EOF))
-                   (progn (forced-format t "~&pushing~%")
-                          (push-to-packet-queue obj connection packet))))))
+                   (return :EOF)
+                   (push-to-packet-queue obj connection packet)))))
       (stream-error () :EOF)
       (TYPE-ERROR () :EOF))))
 
