@@ -49,20 +49,21 @@ footer -> footer
 |#
 
 
-;;as lisp forms
+;;;as lisp forms
 (defparameter *client* '(:e 16))
 (defparameter *name* '(:e 16))
 (defparameter *header* '(#\s #\t #\a #\r #\t))
 (defparameter *footer* '(#\s #\t #\o #\p))
 (defparameter *ops* '(#\a #\k #\d #\c #\i))
 
-(defparameter *data-packet* `(:data (:header ,*header*
-                                     :op (#\d)
-                                     :recipient ,*client*
-                                     :sender ,*client*
-                                     :extra (:len (:e 0 255)
-                                             :data (:e :len))
-                                     :footer ,*footer*)))
+(defparameter *data-packet* `(:data
+                              (:header ,*header*
+                               :op (#\d)
+                               :recipient ,*client*
+                               :sender ,*client*
+                               :extra (:len (:e 0 255)
+                                       :data (:e :len))
+                               :footer ,*footer*)))
 
 (defparameter *kill-packet* `(:kill
                               (:header ,*header*
@@ -102,6 +103,8 @@ footer -> footer
 ;;;we have to download the length in order to then download enough bytes from the stream...
 
 (defun map-plist (func plist)
+  "maps a plist and calls a func that accepts two arguments. returns a list of
+ (list key funcall-result)"
   (loop :with len := (length plist)
         :for x :from 0 :to (1- len) :by 2
         :for y :from 1 :to  len :by 2
@@ -110,7 +113,10 @@ footer -> footer
         ;;  :do (print x)
         :collect (list key (funcall func key val))))
 
+;;;easy macro here but cba
 (defun download-and-validate-byte (stream expected)
+  "Downloads 1 byte and checks that is is equal to expected, if it is it'll return the byte, if not
+it'll throw error of time validation-failed-error"
   (tlet ((byte u-byte (timed-non-block-read-byte stream)));;thisn throws an error
     (if (equal byte (char-code expected))
         byte
@@ -120,6 +126,9 @@ footer -> footer
                                         '(equal byte (char-code expected))))))
 
 (defun download-and-validate-byte-against-potential (stream list-of-potential-vals)
+  "downloads 1 byte and checks if it is equal to any of the numbers in list-of-potential-vals. if
+the byte is then it'll return the byte, if not it will signal an error of type 
+validation-failed-error"
   (tlet ((byte u-byte (timed-non-block-read-byte stream)));;thisn throws an error
     (if (some (lambda (potential)
                 (= byte potential))
@@ -132,7 +141,7 @@ footer -> footer
                                                  (= byte potential))
                                           list-of-potential-vals)))))
 
-(defun  download-and-validate-byte-against-potential-chars (stream list-of-potential-vals)
+(defun download-and-validate-byte-against-potential-chars (stream list-of-potential-vals)
   (tlet ((byte u-byte (timed-non-block-read-byte stream)));;thisn throws an error
     (if (some (lambda (potential)
                 (equal (char-code potential) byte))
@@ -210,6 +219,7 @@ footer -> footer
              val))
 
 (defun download-extra (type stream val)
+  "downloads the extra data for the packets that have an extra keyword"
   (case type
     (:clients (download-clients-extra stream val))
     (:identify (download-identify-extra stream val))
@@ -217,6 +227,8 @@ footer -> footer
 
 
 (defun download-from-packet-sexp (stream packet-sexp)
+  "If the packet to be downloaded is known, this will parse that packet and return a list containing
+all the byte arrays downloaded. If it fails it will return :EOF"
   (let ((type (first packet-sexp))
         (list (first (rest packet-sexp))))
     (map-plist (lambda (key val)
@@ -229,9 +241,9 @@ footer -> footer
                        (:sender (download-sender stream val))
                        (:footer (download-footer stream val)))
                    (stream-error ()
-                     :stream-error)
+                     :EOF)
                    (validation-failed-error ()
-                     :val-failed)))
+                     :EOF)))
                list)))
 ;;;well I just realized how dumb this is
 ;;;the grammars are useful for security reasons but its stupid and impractical. The server
@@ -249,9 +261,13 @@ footer -> footer
     (#\c *clients-packet*)))
 
 (defun download-unknown-op (stream)
+  "Downloads an op from stream validates it against *ops* and returns it, throws a 
+validation-failed error if fails"
   (download-and-validate-byte-against-potential-chars stream *ops*))
 
 (defmethod download-sequence-grammar ((obj connection))
+  "downloads a packet from the connection and produces a plist with all the downloaded values
+returns :EOF if it fails"
   (let ((stream (c-stream obj)))
     (handler-case
         (let* ((header (download-header stream *header*))
