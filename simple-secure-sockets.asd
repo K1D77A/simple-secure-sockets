@@ -15,6 +15,7 @@
                  (:file "packets/fsm")
                  (:file "packets/variables")
                  (:file "packets/fsm-parser")
+                 (:file "packets/grammar-parser")
                  (:file "packets/receive")
                  (:file "packets/send")
                  (:file "packets/packet-handlers")

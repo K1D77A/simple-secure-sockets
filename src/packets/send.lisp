@@ -1,5 +1,6 @@
 (in-package :simple-secure-sockets)
 (declaim (optimize (speed 3) (safety 1)))
+
 (defun build-packet (recipient op)
   "takes in a recipient and creates an instance of packet"
   (let ((rec-vecced (the byte-array (vectorize-data recipient %connection-name-len)))
@@ -16,9 +17,11 @@
                    :op op-vecced
                    :footer foot-vecced
                    :header head-vecced)))
+
 (defun build-kill-packet ()
   (let ((packet (build-packet %kill-recipient %op-kill)))
     (change-class packet 'kill-packet)))
+
 (defun build-ack-packet ()
   (let ((packet (build-packet %ack-recipient %op-ack)))
     (change-class packet 'ack-packet)))
@@ -44,6 +47,7 @@
     (setf (data packet) d-vecced)
     ;;   (setf (sender packet) sender-vecced)
     packet))
+
 (defun build-clients-packet (client-name connected?)
   (declare (integer connected?))
   (if (or (= connected? 1)
@@ -56,6 +60,7 @@
               (client-name packet) client-name-vecced)
         packet)
       (error "connected? is not 1 or 0. ~s" connected?)))
+
 (defun write-byte-array (seq stream)
   (declare (optimize (speed 3)(safety 1)))
   (declare (byte-array seq))
@@ -63,6 +68,7 @@
     (declare (fixnum len))
     (dotimes (i len t)
       (write-byte (the u-byte (aref seq i)) stream))))
+
 (defun add-sender (connection packet)
   (declare (optimize (speed 3)(safety 1)))
   (when (equal (sender packet) :SENDER-NOT-SET)
@@ -124,6 +130,7 @@
       (values (write-all-to-stream (c-stream connection)
                                    header op recipient sender id footer)))
     packet))
+
 (defmethod send (connection (packet ack-packet))
   (with-accessors ((recipient recipient)
                    (header header)
@@ -135,6 +142,7 @@
       (values  (write-all-to-stream (c-stream connection)
                                     header op recipient sender footer)))
     packet))
+
 (defmethod send (connection (packet clients-packet))
   (with-accessors ((recipient recipient)
                    (header header)
@@ -166,6 +174,7 @@
              ;;don't need val because the connection name is the same as key
              (send connection (build-clients-packet key 1)))
            (current-connections obj)))
+
 (defmethod update-all-clients-with-all-connected ((obj server))
   (maphash (lambda (key val)
              (declare (ignore key))
@@ -193,6 +202,7 @@
            ;;we do not want the function to fail to send to clients that are still connected, just
            ;;because one has disconnected in quick succession. 
            (current-connections server)))
+
 (defmethod update-all-clients-with-connected-client ((obj server) connection)
   (update-all-clients-with-connected?-client obj connection t))
 (defmethod update-all-clients-with-disconnected-client ((obj server) connection)
