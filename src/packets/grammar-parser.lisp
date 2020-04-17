@@ -173,7 +173,8 @@ validation-failed-error"
 (defun handle-or (stream sexp)
   (if (equal (first sexp) :or)
       (let ((or-list (rest sexp)))
-        (download-and-validate-byte-against-potential stream or-list))
+        (make-array 1 :element-type 'u-byte :initial-element 
+                    (download-and-validate-byte-against-potential stream or-list)))
       (error "not an or sexp")))
 
 (defun download-header (stream val)
@@ -208,8 +209,8 @@ validation-failed-error"
     (map-plist (lambda (key val)
                  (declare (ignore val))
                  (case key
-                   (:len (setf len (timed-non-block-read-byte stream)))
-                   (:data (handle-e stream `(:e ,len)))))
+                   (:len (setf len (read-n-bytes 1 stream)))
+                   (:data (handle-e stream `(:e ,(aref len 0))))))
                val)))
 
 (defun download-identify-extra (stream val)
@@ -253,7 +254,7 @@ all the byte arrays downloaded. If it fails it will return :EOF"
 
 
 (defun select-packet (op)
-  (case op
+  (case (code-char (aref op 0))
     (#\a *ack-packet*)
     (#\k *kill-packet*)
     (#\d *data-packet*)
@@ -263,28 +264,78 @@ all the byte arrays downloaded. If it fails it will return :EOF"
 (defun download-unknown-op (stream)
   "Downloads an op from stream validates it against *ops* and returns it, throws a 
 validation-failed error if fails"
-  (download-and-validate-byte-against-potential-chars stream *ops*))
+  (make-array 1 :element-type 'u-byte
+                :initial-element (download-and-validate-byte-against-potential-chars stream *ops*)))
+
+
+(defun make-packet-based-on-op (op-arr)
+  (ecase (code-char (aref op-arr 0))
+    (#\d (make-instance 'data-packet))
+    (#\a (make-instance 'ack-packet))
+    (#\c (make-instance 'clients-packet))
+    (#\i (make-instance 'identify-packet))
+    (#\k (make-instance 'kill-packet))))
+
+(defun assoc-val (key alist)
+  (second (assoc key alist)))
+
+(defun add-extra-to-packet (alist packet)
+  (tlet ((extra cons (assoc-val :extra alist)))
+    (etypecase packet
+      (data-packet (setf (d-len packet) (assoc-val :len extra)
+                         (data packet) (assoc-val :data extra)))
+      (clients-packet (setf (connected? packet) (assoc-val :connected extra)
+                            (client-name packet) (assoc-val :client extra)))
+      (identify-packet (setf (id packet) (assoc-val :connection-name extra))))
+    packet))
+
+(defun packet-alist-to-packet-object (alist)
+  (tlet* ((header byte-array (assoc-val :header alist))
+          (op byte-array (assoc-val :op alist))
+          (sender byte-array (assoc-val :sender alist))
+          (recipient byte-array (assoc-val :recipient alist))
+          (footer byte-array (assoc-val :footer alist))
+          (packet packet (make-packet-based-on-op op)))
+    (setf (header packet) header
+          (op packet) op
+          (sender packet) sender
+          (recipient packet) recipient
+          (footer packet) footer)
+    (add-extra-to-packet alist packet)
+    packet))
+
+
 
 (defmethod download-sequence-grammar ((obj connection))
-  "downloads a packet from the connection and produces a plist with all the downloaded values
+  "downloads a packet from the connection and produces an alist with all the downloaded values
 returns :EOF if it fails"
   (let ((stream (c-stream obj)))
     (handler-case
-        (let* ((header (download-header stream *header*))
-               (op (download-unknown-op stream))
-               (packet (select-packet (code-char op)))
-               (type (first packet))
-               (list-remaining (nthcdr 4 (first (rest packet)))))
-          (append  (list (list :header header)
-                         (list :op (make-array 1 :element-type 'u-byte :initial-element op)))
-                   (map-plist (lambda (key val)
-                                (case key
-                                  (:recipient (download-recipient stream val))
-                                  (:extra (download-extra type stream val))
-                                  (:sender (download-sender stream val))
-                                  (:footer (download-footer stream val))))
-                              list-remaining)))
+        (tlet* ((header byte-array (download-header stream *header*))
+                (op byte-array (download-unknown-op stream))
+                (packet cons (select-packet op))
+                (type keyword (first packet))
+                (list-remaining cons (nthcdr 4 (first (rest packet))))
+                (result cons
+                        (append (list (list :header header)
+                                      (list :op op))
+                                (map-plist (lambda (key val)
+                                             (case key
+                                               (:recipient (download-recipient stream val))
+                                               (:extra (download-extra type stream val))
+                                               (:sender (download-sender stream val))
+                                               (:footer (download-footer stream val))))
+                                           list-remaining))))
+          (packet-alist-to-packet-object result))
       (stream-error ()
         :EOF)
       (validation-failed-error ()
         :EOF))))
+
+;;  ((:HEADER #(115 116 97 114 116)) (:OP #(100))
+;; (:RECIPIENT
+;; #(105 109 97 114 97 110 100 111 109 110 97 109 101 121 101 115))
+;; (:SENDER
+;;  #(105 109 97 114 97 110 100 111 109 110 97 109 101 121 101 115))
+;; (:EXTRA ((:LEN 5) (:DATA #(97 98 99 100 101))))
+;; (:FOOTER #(115 116 111 112)))
