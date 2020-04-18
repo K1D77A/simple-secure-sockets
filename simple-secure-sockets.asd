@@ -12,6 +12,7 @@
                  (:file "classes/conditions")
                  (:file "classes/packets")
                  (:file "generics")
+                 (:file "encryption/encryption")
                  (:file "packets/fsm")
                  (:file "packets/variables")
                  (:file "packets/fsm-parser")
