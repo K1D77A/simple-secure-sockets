@@ -95,7 +95,7 @@
       :if (handler-case (listen stream)
             (stream-error ()
               (return :EOF)))
-        :do (let ((packet (download-sequence-fsm obj)))
+        :do (let ((packet (download-and-parse obj)))
               ;; (forced-format t "~&client: ~A~%" (connection-name obj))
               (if (equal packet :EOF)
                   (return :EOF)
@@ -154,7 +154,7 @@
             (setf socket connect)
             (setf stream (usocket:socket-stream connect))
             (send obj (build-identify-packet name))
-            (let ((packet (download-sequence-fsm obj)))
+            (let ((packet (download-and-parse obj)))
               (f-format :debug :client-receive "------ack maybe received ~A-------"
                         (type-of packet))
               (if (equal (type-of packet) 'ack-packet)

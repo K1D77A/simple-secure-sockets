@@ -7,6 +7,12 @@
     digest
     (ironclad:ascii-string-to-byte-array password))))
 
+(defparameter *prng* (ironclad:make-prng :fortuna))
+(ironclad:read-os-random-seed :random *prng*)
+
+(defun rand-data (len)
+  "Generates a random byte array after reseeding the prng"  
+  (ironclad:random-data len *prng*))
 
 (defparameter *iamasalt* "saltsaltsalttalt")
 (defparameter *pass* (concatenate 'string "iamapassword" *iamasalt*))
@@ -77,12 +83,9 @@
                         :key (ironclad:ascii-string-to-byte-array
                               (hash-password *pass* :adler32))))
 
-(defparameter *prng* (ironclad:make-prng :fortuna))
-
-(defun rand-data (len)
-  "Generates a random byte array after reseeding the prng"
-  (ironclad:read-os-random-seed :random *prng*)
-  (ironclad:random-data len *prng*))
+(defparameter *all-ciphers* (list *des-cipher* *3des-cipher* *aes256-cipher*
+                                  *aes128-cipher* *threefish1024-cipher* *threefish256-cipher*
+                                  *threefish256-cipher* *twofish-cipher* *blowfish-cipher*))
 
 (defun encrypt-string (cipher string)
   (ironclad:encrypt-in-place cipher (ironclad:ascii-string-to-byte-array string)))
@@ -113,11 +116,9 @@
   (let ((keylen (gethash cipher *ciphers-keysize*)))
     (find-sized-digest-len keylen)))
 
-
 (defun encrypt-byte-array (cipher byte-array)
   ;; (reinitialize-instance cipher)
-  (let ((byte (concatenate '(vector (unsigned-byte 8))
-                           (rand-data (ironclad:block-length cipher))  byte-array)))
+  (let ((byte (conc-arrs (list (rand-data (ironclad:block-length cipher))  byte-array))))
     (ironclad:encrypt-in-place cipher byte)
     byte))
 
@@ -127,28 +128,29 @@
     (ironclad:encrypt-in-place cipher str)
     str))
 
-
 (defun decrypt-byte-array-to-string (cipher byte-array)
   ;;  (reinitialize-instance cipher)
   (ironclad:decrypt-in-place cipher byte-array)
   (setf byte-array (coerce (map 'list #'code-char byte-array) 'string)))
 
-
 (defun decrypt-byte-array (cipher byte-array)
+  (declare (optimize (speed 3)(safety 1)))
   ;;  (reinitialize-instance cipher)
-  (let ((arr byte-array))
+  (tlet ((arr byte-array byte-array))
     (ironclad:decrypt-in-place cipher arr)
     (subseq arr (ironclad:block-length cipher))))
 
 (defun seq-total-len (seqs)
   "returns the total length of all the seqs together"
+  (declare (optimize (speed 3)(safety 1)))
   (reduce #'+ (mapcar #'length seqs)))
 
 (defun conc-arrs (arrs)
+  (declare (optimize (speed 3)(safety 1)))
   (tlet ((array byte-array (make-array (seq-total-len arrs) :element-type 'u-byte))
          (pos integer 0))    
-    (loop :for arr :in arrs
-          :do (loop :for ele :across arr
+    (loop :for arr :in (the list arrs)
+          :do (loop :for ele :across  arr
                     :do (setf (aref array pos) ele)
                         (incf pos)))
     array))
@@ -215,16 +217,22 @@
     (write-sequence arr-to-send (c-stream connection))))
 
 (defun download-encrypted-packet (connection cipher)
-  (handler-case 
+  (declare (optimize (speed 3)(safety 1)))
+  (handler-case
       (tlet* ((stream stream (c-stream connection))
               (len u-byte (timed-non-block-read-byte stream))
               (encrypted-packet byte-array (read-n-bytes len stream)))
-        (decrypt-byte-array cipher encrypted-packet))
-    (stream-error ()
-      ;;(write-error c)
+        (flexi-streams:make-in-memory-input-stream (decrypt-byte-array cipher encrypted-packet)))
+    (stream-error (c)
+      (write-error c)
       :EOF)
     (SB-INT:SIMPLE-STREAM-ERROR ()
       :EOF)
     (broken-packet ()
       (sb-ext:atomic-incf (car oofs))
       :EOF)))
+
+(defun test-decrypt-time (n cipher)
+  (let* ((encrypted (encrypt-string-to-byte-array cipher (make-string n :initial-element #\a)))
+         (decrypted (decrypt-byte-array cipher encrypted)))
+    (flexi-streams:make-in-memory-input-stream decrypted)))

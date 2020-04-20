@@ -3,16 +3,14 @@
 
 (defun build-packet (recipient op)
   "takes in a recipient and creates an instance of packet"
-  (let ((rec-vecced (the byte-array (vectorize-data recipient %connection-name-len)))
-        ;;(sender-vecced (vectorize-data sender %connection-name-len))
-        (op-vecced (the byte-array (vectorize-data op)))
-        (foot-vecced (the byte-array (vectorize-data %stop-footer)))
-        (head-vecced (the byte-array (vectorize-data %start-header))))
+  (tlet ((rec-vecced byte-array  (vectorize-data recipient %connection-name-len))
+         (op-vecced byte-array (vectorize-data op))
+         (foot-vecced byte-array (vectorize-data %stop-footer))
+         (head-vecced byte-array (vectorize-data %start-header)))
     (unless (n-or-lessp %connection-name-len rec-vecced)
       (error "recipient does not satisfy predicate n-or-lessp. Recipient: ~A~%Length: ~A"
              recipient (length recipient)))
     (make-instance 'packet
-                   ;;:sender sender-vecced
                    :recipient rec-vecced
                    :op op-vecced
                    :footer foot-vecced
@@ -27,7 +25,7 @@
     (change-class packet 'ack-packet)))
 
 (defun build-identify-packet (id)
-  (let ((id-vecced (the byte-array (vectorize-data id %connection-name-len))))
+  (tlet ((id-vecced  byte-array (vectorize-data id %connection-name-len)))
     (unless (n-or-lessp %connection-name-len id)
       (error "id does not satisfy predicate n-or-lessp. ID: ~A~%Length: ~A" id (length id)))
     (let ((packet (build-packet %identify-recipient %op-identify)))
@@ -36,14 +34,14 @@
       packet)))
 
 (defun build-data-packet (recipient data)
-  (let* ((packet  (build-packet recipient %op-data))
-         (d-vecced (the byte-array (vectorize-data data)))
-         (len (the integer (length d-vecced))))
+  (tlet* ((packet packet (build-packet recipient %op-data))
+          (d-vecced byte-array (vectorize-data data))
+          (len integer (length d-vecced)))
     (unless (<= len  %max-data-size)
       (error "Data is longer than ~A which is the current hard limit on data size. Length: ~A" %max-data-size len))
     (change-class packet 'data-packet)
     (setf (d-len packet) (the single-byte
-                              (make-array 1 :element-type '(unsigned-byte 8) :initial-element len)))
+                              (make-array 1 :element-type 'u-byte :initial-element len)))
     (setf (data packet) d-vecced)
     ;;   (setf (sender packet) sender-vecced)
     packet))
@@ -52,8 +50,8 @@
   (declare (integer connected?))
   (if (or (= connected? 1)
           (= connected? 0))
-      (let ((packet (build-packet %clients-recipient %op-clients))
-            (client-name-vecced (the byte-array (vectorize-data client-name %connection-name-len))))
+      (tlet ((packet packet (build-packet %clients-recipient %op-clients))
+             (client-name-vecced byte-array (vectorize-data client-name %connection-name-len)))
         (change-class packet 'clients-packet)
         (setf (connected? packet) (the single-byte (make-array 1 :element-type '(unsigned-byte 8)
                                                                  :initial-element connected?))
@@ -64,34 +62,40 @@
 (defun write-byte-array (seq stream)
   (declare (optimize (speed 3)(safety 1)))
   (declare (byte-array seq))
-  (let ((len (the fixnum (length seq))))
+  (tlet ((len fixnum (length seq)))
     (declare (fixnum len))
     (dotimes (i len t)
-      (write-byte (the u-byte (aref seq i)) stream))))
+      (write-byte (the u-byte (aref seq i)) stream)
+      (finish-output stream))))
 
 (defun add-sender (connection packet)
   (declare (optimize (speed 3)(safety 1)))
   (when (equal (sender packet) :SENDER-NOT-SET)
     ;;want to make sure that it has not be previously set, ie when it is being forwarded
-    (let ((sender-vecced
-            (the byte-array (vectorize-data (connection-name connection) %connection-name-len))))
+    (tlet ((sender-vecced byte-array (vectorize-data
+                                      (connection-name connection) %connection-name-len)))
       (setf (sender packet) sender-vecced)))
   packet)
 
 (defun write-all-to-stream (stream &rest args)
   "Writes all of the args to stream and forces the output after"
   (declare (optimize (speed 3)(safety 1)))
-  (let ((succ?
-          (every (lambda (i)                   
-                   (not (null i)))
-                 (mapcar (lambda (arg)
-                           (declare (byte-array arg))
-                           (if (open-stream-p stream)
-                               (write-byte-array arg stream)
-                               (error "stream shut~A~%" stream)))
-                         args))))
-    (finish-output stream)
-    succ?))
+  (if (and *encryption* *cipher*)
+      (tlet* ((encrypted byte-array (encrypt-byte-array *cipher* (conc-arrs args)))
+              (len fixnum (length encrypted))
+              (arr-to-send byte-array (conc-arrs `(#(,len) ,encrypted))))
+        ;;(print stream)
+        (write-byte-array arr-to-send stream))
+      (let ((succ?
+              (every (lambda (i)                   
+                       (not (null i)))
+                     (mapcar (lambda (arg)
+                               (declare (byte-array arg))
+                               (if (open-stream-p stream)
+                                   (write-byte-array arg stream)
+                                   (error "stream shut~A~%" stream)))
+                             args))))       
+        succ?)))
 
 (defmethod send (connection (packet data-packet))
   (with-accessors ((recipient recipient)
@@ -106,6 +110,7 @@
       (values (write-all-to-stream (c-stream connection)
                                    header op recipient sender len data footer)))
     packet))
+
 (defmethod send (connection (packet kill-packet))
   (with-accessors ((recipient recipient)
                    (header header)
@@ -139,8 +144,8 @@
                    (op op))
       (add-sender connection packet)
     (bt:with-lock-held ((stream-lock connection))
-      (values  (write-all-to-stream (c-stream connection)
-                                    header op recipient sender footer)))
+      (values (write-all-to-stream (c-stream connection)
+                                   header op recipient sender footer)))
     packet))
 
 (defmethod send (connection (packet clients-packet))
@@ -160,12 +165,9 @@
 (defmethod send-data-packet ((obj client) recipient data)
   (let ((clients (available-clients obj)))
     (when (member recipient clients :test #'string=)
-      (let ((packet (build-data-packet recipient
-                                       data)))
+      (let ((packet (build-data-packet recipient data)))
         (values (send obj packet) clients))
       nil)))
-
-
 
 (defmethod send-all-connected-clients ((obj server) connection)
   "sends all the currently connected clients to the client that has just connected"

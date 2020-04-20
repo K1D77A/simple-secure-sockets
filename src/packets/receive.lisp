@@ -3,49 +3,48 @@
 
 
 
-(defconstant +sleep-time+ (the single-float 0.001))
-(defconstant +timeout+ (the u-byte 5))
-(defconstant +increment+ (the fixnum (ceiling  (/ +timeout+ +sleep-time+))))
+(defparameter *sleep-time* (the single-float 0.001))
+(defparameter *timeout* (the u-byte 5))
+(defparameter *increment* (the fixnum (ceiling  (/ *timeout* *sleep-time*))))
 
 (defparameter *read* nil)
+
 (defun clean-read ()
   (mapcar #'code-char (reverse *read*)))
 
 (defun non-block-read-byte (stream)
   "read byte that is non blocking, if there is nothing to read it simply returns nil"
-  (declare (optimize (speed 3)(safety 0))
+  (declare (optimize (speed 3)(safety 1))
            (type stream stream))
   (the (or u-byte boolean)
-       (and  (listen stream)
-             (tlet ((byte u-byte (read-byte stream t)))
-               (the u-byte byte)))))
-
-
+       (and (listen stream)
+            (tlet ((byte u-byte (read-byte stream t)))
+              (the u-byte byte)))))
 
 (defun timed-non-block-read-byte (stream)
-  "This is a non blocking version of read byte which is timed. loops +increment+ amount of times and checks if there is anything on the stream to be read, if not it'll sleep for +sleep-time+
+  "This is a non blocking version of read byte which is timed. loops *increment* amount of times and checks if there is anything on the stream to be read, if not it'll sleep for *sleep-time*
 if it eventually finds something to read it'll read and then return that byte. if it reaches the 
 timeout it'll signal an error"
-  (declare (optimize (speed 3)(safety 0))
+  (declare (optimize (speed 3)(safety 1))
            (type stream stream))
-  (tlet ((byte (or u-byte boolean)  (non-block-read-byte stream)))
+  (tlet ((byte (or u-byte boolean) (non-block-read-byte stream)))
     (or byte
         (the u-byte
-             (loop :for x fixnum :from 1 :to +increment+
+             (loop :for x fixnum :from 1 :to *increment*
                    :for byte? := (the (or boolean u-byte) (non-block-read-byte stream))
                      :then (the (or u-byte boolean) (non-block-read-byte stream))
                    :if byte?
                      :do (return byte?)                    
                    :else
-                     :do (sleep +sleep-time+)
+                     :do (sleep *sleep-time*)
                    :finally (error 'stream-error :stream stream))))))
 
 (defun read-n-bytes (n stream)
   "Reads n bytes from stream and puts them into an array of length n and type unsigned-byte 8"
-  (declare (optimize (speed 3)(safety 0))
+  (declare (optimize (speed 3)(safety 1))
            (type u-byte n)
-           (type stream stream))
-  (tlet ((data  byte-array (make-array n :element-type 'u-byte)))
+           (type stream  stream))
+  (tlet ((data byte-array (make-array n :element-type 'u-byte)))
     (declare (type byte-array data))
     (dotimes (i n (the byte-array data))
       (declare (type fixnum i)
@@ -53,22 +52,22 @@ timeout it'll signal an error"
       (the u-byte 
            (setf (aref data i) (the u-byte (timed-non-block-read-byte stream)))))))
 
-;;if a half complete packet is sent, this will simply block...
+;;if a half complete packet is sent, this will simply blqock...
 ;;if only one thread processes the connections then this means the entire server blocks...
 (defmethod download-sequence ((obj connection))
   "Method that handles downloading a complete sequence. If an EOF is reached, ie the client shuts down the connection on their end, this will mean and EOF is thrown, in this case download-sequence will return the symbol :EOF. "
   (declare (optimize (speed 3) (safety 1)))  
   (handler-case
-      (bt:with-lock-held ((stream-lock obj))
-        (tlet ((packet packet (make-instance 'packet)))
-          (read-header obj packet)
-          (read-op obj packet)
-          (read-recipient obj packet)
-          (read-sender obj packet)          
-          (handle-op obj packet)
-          (read-footer obj packet)
-          ;; (print-object packet t)
-          packet))
+      ;;(bt:with-lock-held ((stream-lock obj))
+      (tlet ((packet packet (make-instance 'packet)))
+        (read-header obj packet)
+        (read-op obj packet)
+        (read-recipient obj packet)
+        (read-sender obj packet)          
+        (handle-op obj packet)
+        (read-footer obj packet)
+        ;; (print-object packet t)
+        packet)
     (stream-error ()
       ;;(write-error c)
       :EOF)
@@ -79,16 +78,17 @@ timeout it'll signal an error"
       :EOF)))
 
 (defparameter oofs (cons 0 nil))
-(defconstant +header-length+ (the fixnum (length %start-header)))
-(defconstant +footer-length+ (the fixnum (length %stop-footer)))
-  (defmethod read-header :before ((obj connection) (packet packet))
-    (f-format :debug :packet-read  "New packet start~s" (get-universal-time))
-    (f-format :debug :packet-read  "-Reading header"))
+(defparameter *header-length* (the fixnum (length %start-header)))
+(defparameter *footer-length* (the fixnum (length %stop-footer)))
+
+(defmethod read-header :before ((obj connection) (packet packet))
+  (f-format :debug :packet-read  "New packet start~s" (get-universal-time))
+  (f-format :debug :packet-read  "-Reading header"))
 (defmethod read-header :after ((obj connection) (packet packet))
   (f-format :debug :packet-read  "-Header read ~S" (header* packet)))
 (defmethod read-header ((obj connection) (packet packet))
   (setf (header packet)
-        (the byte-array (read-n-bytes +header-length+ (c-stream obj)))))
+        (the byte-array (read-n-bytes *header-length* (c-stream obj)))))
 
 (defmethod read-op :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "--Reading op"))
@@ -150,9 +150,6 @@ sender of the packet is the same as the associated connections-name"
   (tlet ((sender byte-array (read-n-bytes %connection-name-len (c-stream obj))))
     (setf (sender packet) sender)))    
 
-
-
-
 (defmethod handle-op :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "--Handling OP"))
 (defmethod handle-op :after ((obj connection)(packet packet))
@@ -197,7 +194,7 @@ correct place in the packet"
   (f-format :debug :packet-read  "Packet End!"))
 (defmethod read-footer ((obj connection)(packet packet))
   (setf (footer packet)
-        (the byte-array (read-n-bytes +footer-length+ (the stream (c-stream obj))))))
+        (the byte-array (read-n-bytes *footer-length* (the stream (c-stream obj))))))
 
 
 ;;;;gonna change the send to a generic function that accepts the packet types as

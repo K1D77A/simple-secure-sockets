@@ -1,7 +1,7 @@
 ;;;;this file contains the implementations of finite state machines that will be used for parsing
 (in-package :simple-secure-sockets)
 
-(defconstant +valid-char-form+ '(numberp :byte))
+(defparameter *valid-char-form* '(numberp :byte))
 
 (defvar *lambda-table* (make-hash-table :test #'equal))
 (defvar *state-table* (make-hash-table :test #'equal))
@@ -128,7 +128,7 @@
     (make-micro-fsm states-and-lambdas)))
 
 (defun make-micro-fsm-to-read-n-chars (n)
-  (tlet ((states-and-lambdas list (list (generate-n-lambda-and-state n +valid-char-form+))))
+  (tlet ((states-and-lambdas list (list (generate-n-lambda-and-state n *valid-char-form*))))
     (make-micro-fsm states-and-lambdas)))
 
 (defun generate-character-check-form (list-of-chars)

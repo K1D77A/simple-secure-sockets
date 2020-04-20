@@ -16,7 +16,6 @@
                            (send server-con-to-client (build-data-packet (name server)
                                                                          (connection-name client)
                                                                          "beep boop im groot")))
-                         
                          (shutdown server)
                          (sleep 1)
                          (shutdown client)
@@ -38,8 +37,8 @@
                               :collect (make-client (format nil "client~d" x)
                                                     "127.0.0.1"
                                                     port)))
-          (forced-format t "~&Clients connected sleeping 0.5 seconds~%")
-          (sleep 0.5)
+          (forced-format t "~&~A Clients connected sleeping 0.5 seconds~%" (length clients))
+          (sleep 2)
           (values server clients))
       (serious-condition ()
         (forced-format t "~&Connection failed~%")
@@ -96,7 +95,7 @@
                                              (done-processing-p server)))
                              :do (sleep 0.001)
                              :finally (setf now (- (get-internal-run-time) now))
-                                      (sleep 5)
+                                      (sleep 10)
                                       (handler-case
                                           (progn ;;(mapcar #'shutdown clients)
                                             (sleep 1)
@@ -150,21 +149,24 @@ the available clients is length 2 or more"
             :collect (n-random-recipients cl x))))
 
 (defun send-packets-to-recipients (list-genned)
+  ;;  (print "sending")
   (lparallel:pmapcar (lambda (cons)
                        (let ((con (car cons))
                              (packets (cdr cons)))
+                         ;;  (print "oof")
                          (mapcar (lambda (packet)
                                    (send con packet))
                                  packets)))
                      list-genned)
   t)
+
 (defun gen-and-send-packets (clients n)
   (let* ((n-calc (the integer(ceiling (sqrt n))))
          (lst (generate-packets (n-lots-of-x-random-recipients clients n-calc n-calc))))
     (forced-format t "Sending ~d packets" n)
     (time (send-packets-to-recipients lst))))
 
-(defun generate-packets (random-recipients-list)
+(defun generate-packets (random-recipients-list)  
   (let ((data (make-string 10 :initial-element #\o)))
     (forced-format t "~&generating packets~%")
     (lparallel:pmapcar (lambda (lst)

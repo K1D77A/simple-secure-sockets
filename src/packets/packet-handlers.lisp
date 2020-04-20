@@ -3,13 +3,11 @@
 
 #|
 
-
 SERVER handlers
-
-
 
 |#
 (defparameter *data-packets-pushed* 0)
+
 (defmethod handle-packet :before ((obj server)(packet data-packet))
   (f-format :debug :packet-forward "sending: ~s~%" packet))
 (defmethod handle-packet ((obj server)(packet data-packet))
@@ -17,7 +15,7 @@ SERVER handlers
   (incf *data-packets-pushed*)
   (let* ((recipient (recipient* packet))
          ;;recipient in the packet is a binary array so needs to be converted to a string
-         (connection (get-current-connection-by-name obj recipient)))
+         (connection (get-current-connection-by-name obj recipient)))    
     (when (and recipient connection);;currently just drops packet if can't find the recipient in the
       ;;current connections hash-table
       (forward connection packet))))
@@ -55,12 +53,7 @@ SERVER handlers
 ;;;because multiple threads will be removing connections at the same time
 #|
 
-
-
 CLIENT handlers
-
-
-
 
 |#
 

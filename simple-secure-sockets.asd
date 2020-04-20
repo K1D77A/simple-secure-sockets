@@ -26,5 +26,6 @@
   :depends-on   (#:usocket
                  #:lparallel
                  #:closer-mop
+                 #:flexi-streams
                  #:ironclad))
 

@@ -4,6 +4,25 @@
 (declaim (optimize (speed 3)(safety 1)))
 
 (defparameter *current-servers* (make-hash-table :test 'equal))
+(defparameter *encryption* t)
+(defparameter *parser* #'download-sequence-fsm)
+(defparameter *cipher* *blowfish-cipher*)
+;;(defparameter *buff-not-stream* nil)
+
+
+(defun download-and-parse (connection)
+  (bt:with-lock-held ((stream-lock connection))
+    (if (and *encryption* *cipher*)
+        (let ((old (c-stream connection))
+              (buf (download-encrypted-packet connection *cipher*)))       
+          (if (equal buf :EOF)
+              :EOF
+              (progn 
+                (setf (c-stream connection) buf)
+                (let ((parsed (funcall *parser* connection)))
+                  (setf (c-stream connection) old)
+                  parsed))))
+        (funcall *parser* connection))))
 
 (defun start-server (name ip &optional (port 55555))
   (if (unique-key-p *current-servers* name)
@@ -108,7 +127,7 @@ is returned"
   (let ((stream (c-stream connection)))
     (handler-case
         (while-finally-loop (listen stream) ((return :DONE))
-            ((let ((packet (download-sequence-fsm connection)))
+            ((let ((packet (download-and-parse connection)))
                (if (equal packet :EOF)
                    (return :EOF)
                    (push-to-packet-queue obj connection packet)))))
@@ -145,7 +164,7 @@ is returned"
         ;;and then use that
         ;;key in the current-connections hash-table
         (f-format :debug :server-receive   "------WAITING ON IDENTIFY-------")
-        (let ((identify-packet (download-sequence-fsm current-connection)))        
+        (let ((identify-packet (download-and-parse current-connection)))        
           (f-format :debug :server-receive  "-----A PACKET HAS BEEN RECEIVED-------~%")
           (if (equal (type-of identify-packet) 'identify-packet)
               (let ((id (id* identify-packet)))
@@ -163,7 +182,7 @@ is returned"
               ;;but 
               (let ((type (type-of identify-packet))) 
                 (f-format :error :server-receive
-                          "packet was not of type identify-packet: ~A" type)
+                          "packet was not of type identify-packet: ~A" packet)
                 (f-format :error :server-receive  "breaking connection")
                 (shutdown current-connection))))))))
 
@@ -193,7 +212,7 @@ array"
   ;;(find-and-kill-thread (processor-name obj))
   (when send-killp
     (send obj (build-kill-packet)))
-  (let ((pack (download-sequence-fsm obj)))
+  (let ((pack (download-and-parse obj)))
     ;;even if there is an error and :EOF is returned just kill the connection
     (when (or (equal (type-of pack) 'ack-packet) (equal pack :EOF))
       (safe-socket-close (c-socket obj))

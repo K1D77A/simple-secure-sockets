@@ -25,11 +25,11 @@
       (setf *debug-level* level)
       (error 'type-error :datum level :expected-type *debug-levels*)))
 
-(defconstant +format-func+ (formatter "~&[~S][~S]"))
+(defparameter *format-func* (formatter "~&[~S][~S]"));;this was a constant
 
 (defun conc-level-prefix-and-control-string (level prefix control-string)
   (declare (inline conc-level-prefix-and-control-string))
-  (concatenate 'string (apply +format-func+ (list nil level prefix))
+  (concatenate 'string (apply *format-func* (list nil level prefix))
                control-string "~%"))
 
 (defun f-format (level prefix  control-string &rest format-arguments)
