@@ -1,4 +1,7 @@
 ;;;;this file contains everything required to implement encryption
+;;;;the current implementation simply encrypts a complete packet with a known cipher for both
+;;;;client and server because there is no handshake to exchange the encryption key
+
 (in-package :simple-secure-sockets)
 
 (defun hash-password (password digest)
@@ -14,6 +17,8 @@
   "Generates a random byte array after reseeding the prng"  
   (ironclad:random-data len *prng*))
 
+;;;have a key here that is constant, with a salt, again because this is just testing the impact
+;;;of encryption on parsing times
 (defparameter *iamasalt* "saltsaltsalttalt")
 (defparameter *pass* (concatenate 'string "iamapassword" *iamasalt*))
 
@@ -82,58 +87,27 @@
                         :initialization-vector (rand-data 8)
                         :key (ironclad:ascii-string-to-byte-array
                               (hash-password *pass* :adler32))))
+;;;obviously different hashing algorithms have different levels of security but they
+;;;also produce different length outputs, so different hashes are used for different algorithms
+;;;and in some cases the keys are hashed twice and the result appended together
 
 (defparameter *all-ciphers* (list *des-cipher* *3des-cipher* *aes256-cipher*
                                   *aes128-cipher* *threefish1024-cipher* *threefish256-cipher*
                                   *threefish256-cipher* *twofish-cipher* *blowfish-cipher*))
 
-(defun encrypt-string (cipher string)
-  (ironclad:encrypt-in-place cipher (ironclad:ascii-string-to-byte-array string)))
-
-(defvar *ciphers-keysize* (make-hash-table :test #'equal))
-
-(defun all-ciphers-and-key-sizes ()
-  (mapcar (lambda (cipher)
-            (setf (gethash cipher *ciphers-keysize*) (ironclad:key-lengths cipher)))
-          (ironclad:list-all-ciphers)))
-
-(defvar *digest-length* (make-hash-table :test #'equal))
-
-(defun all-digest-lengths ()
-  (mapcar (lambda (digest)
-            (setf (gethash digest *digest-length*)  (ironclad:digest-length digest)))
-          (ironclad:list-all-digests)))
-
-(defun find-sized-digest-len (len)
-  (let ((result))
-    (maphash (lambda (key val)
-               (when (= val len)
-                 (push key result)))
-             *digest-length*)
-    result))
-
-(defun find-cipher-digest (cipher)
-  (let ((keylen (gethash cipher *ciphers-keysize*)))
-    (find-sized-digest-len keylen)))
-
 (defun encrypt-byte-array (cipher byte-array)
-  ;; (reinitialize-instance cipher)
+  "Takes in a cipher and a byte array and returns a new byte array whose contents has 
+been encrypted. The cipher should be in cfb8 mode as this will append a random byte-array
+of length (block-length cipher) to the start of the byte-array."
   (let ((byte (conc-arrs (list (rand-data (ironclad:block-length cipher))  byte-array))))
     (ironclad:encrypt-in-place cipher byte)
     byte))
 
-(defun encrypt-string-to-byte-array (cipher string)
-  ;; (reinitialize-instance cipher)
-  (let ((str (ironclad:ascii-string-to-byte-array string)))
-    (ironclad:encrypt-in-place cipher str)
-    str))
-
-(defun decrypt-byte-array-to-string (cipher byte-array)
-  ;;  (reinitialize-instance cipher)
-  (ironclad:decrypt-in-place cipher byte-array)
-  (setf byte-array (coerce (map 'list #'code-char byte-array) 'string)))
-
 (defun decrypt-byte-array (cipher byte-array)
+  "Takes in a cipher and a byte-array and decrypts the byte array. The returned array is not the 
+complete decryption but only contains the data that the user wanted encrypted when using 
+'encrypt-byte-array', after decryption the array subseq'd (subseq arr (block-length cipher))
+to remove the IV block"
   (declare (optimize (speed 3)(safety 1)))
   ;;  (reinitialize-instance cipher)
   (tlet ((arr byte-array byte-array))
@@ -146,6 +120,7 @@
   (reduce #'+ (mapcar #'length seqs)))
 
 (defun conc-arrs (arrs)
+  "concatenate all the arrays within the list arrs and return 1 new array"
   (declare (optimize (speed 3)(safety 1)))
   (tlet ((array byte-array (make-array (seq-total-len arrs) :element-type 'u-byte))
          (pos integer 0))    
@@ -154,6 +129,9 @@
                     :do (setf (aref array pos) ele)
                         (incf pos)))
     array))
+(defgeneric encrypt-packet (connection cipher packet)
+  (:documentation "Takes in a connection, cipher and an instance of packet
+ (or subclass) then returns the the packet as an encrypted byte-array that can be sent"))
 
 (defmethod encrypt-packet (connection cipher (packet data-packet))
   (with-accessors ((recipient recipient)
@@ -211,12 +189,20 @@
       (encrypt-byte-array cipher b-arr))))
 
 (defun send-packet (connection cipher packet)
+  "Takes in a connection, cipher and packet, encrypts the packet using 'encrypt-packet'
+and appends its length to the start of the encrypted packet before sending it down
+ (c-stream connection)"
   (tlet* ((encrypted byte-array (encrypt-packet connection cipher packet))
           (len fixnum (length encrypted))
-          (arr-to-send byte-array (conc-arrs `(#(,len) ,encrypted))))
-    (write-sequence arr-to-send (c-stream connection))))
+          (arr-to-send byte-array (conc-arrs `(#(,len) ,encrypted)))
+          (stream stream (c-stream connection)))
+    (write-sequence arr-to-send stream)
+    (force-output stream)))
 
 (defun download-encrypted-packet (connection cipher)
+  "downloads an encrypted packet from the (c-stream connection), decrypts it and returns it as an
+in-memory-input-stream for use with a parser. This means that encrypted packets can be downloaded
+and dropped straight into a parser used for non encrypted parsers"
   (declare (optimize (speed 3)(safety 1)))
   (handler-case
       (tlet* ((stream stream (c-stream connection))
@@ -227,9 +213,6 @@
       (write-error c)
       :EOF)
     (SB-INT:SIMPLE-STREAM-ERROR ()
-      :EOF)
-    (broken-packet ()
-      (sb-ext:atomic-incf (car oofs))
       :EOF)))
 
 (defun test-decrypt-time (n cipher)
