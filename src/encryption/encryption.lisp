@@ -5,6 +5,7 @@
 (in-package :simple-secure-sockets)
 
 (defun hash-password (password digest)
+  "Takes in a string and a keyword, the keyword is digest supported by ironclad"
   (ironclad:byte-array-to-hex-string 
    (ironclad:digest-sequence 
     digest
@@ -129,6 +130,7 @@ to remove the IV block"
                     :do (setf (aref array pos) ele)
                         (incf pos)))
     array))
+
 (defgeneric encrypt-packet (connection cipher packet)
   (:documentation "Takes in a connection, cipher and an instance of packet
  (or subclass) then returns the the packet as an encrypted byte-array that can be sent"))
