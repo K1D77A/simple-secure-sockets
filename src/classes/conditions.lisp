@@ -62,11 +62,13 @@
          :b-p-packet packet))
 (define-condition mali-packet (broken-packet)
   ())
+
 (defmethod print-object ((object mali-packet) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~s~% malicious packet that was received: ~S~%"
             (b-p-message object)
             (b-p-packet object))))
+
 (defun malicious-packet-error (message packet)
   (error 'mali-packet
          :b-p-message message
@@ -99,6 +101,7 @@ before it crashed")))
                 (byte-array (format nil "[from byte-array]: ~A" (convert-to-string conts)))
                 (t conts)))
             (broken-stream object))))
+
 (defun broken-stream-error (message broken-stream extra-contents)
   (error 'broken-stream
          :message message

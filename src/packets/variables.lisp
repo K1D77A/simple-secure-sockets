@@ -48,6 +48,7 @@
                                                %op-kill
                                                %op-clients
                                                %op-identify))))
+
 (defparameter *kill-recipient-mfsm* (make-micro-fsm-for-string %kill-recipient))
 (defparameter *identify-recipient-mfsm*
   (make-micro-fsm-for-string %identify-recipient))

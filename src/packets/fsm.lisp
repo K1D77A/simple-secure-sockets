@@ -2,12 +2,8 @@
 (in-package :simple-secure-sockets)
 
 (defparameter *valid-char-form* '(numberp :byte))
-
 (defvar *lambda-table* (make-hash-table :test #'equal))
 (defvar *state-table* (make-hash-table :test #'equal))
-
-
-
 
 (define-condition validation-failed-error (error)
   ((message
@@ -205,8 +201,6 @@ which would look like
   (setf (gethash (list n form) *lambda-table*)
         (compile nil (generate-lambda-do-form-n-times n form))))
 
-
-
 (defun generate-lambda-based-on-form (form)
   "generates a lambda that when compiled can be used to read from a byte stream. form is a list like
 '((eq :byte 111)) 111 is an ascii character code and :byte is replaced with the downloaded byte. 
@@ -294,9 +288,6 @@ loop over a form"
 (defmethod change-state ((fsm micro-finite-state-machine) newstate)
   (setf (current-state fsm) newstate))
 
-(defmethod change-state :before (fsm newstate))
-;;  (f-format t "~&changing state ~A" newstate))
-
 (defun reset-mfsm (fsm)
   (change-state fsm "inactive")
   (setf (final-condition fsm) nil)
@@ -310,7 +301,6 @@ loop over a form"
                    (len len)
                    (final-condition final-condition))
       micro-fsm
-    ;;    (tlet ((iter fixnum 0))
     (handler-case
         (progn
           (loop :for s-n-l list :in parser
@@ -322,17 +312,6 @@ loop over a form"
                         (integer (setf (aref result x) byte))
                         (simple-array (setf result byte))))
                     (change-state micro-fsm (get-tried s-n-l)))
-          ;; (mapcar (lambda (state-n-lambda)
-          ;;           (the list state-n-lambda)
-          ;;           (change-state micro-fsm (get-try state-n-lambda))
-          ;;           (tlet* ((func function (get-lambda state-n-lambda))
-          ;;                   (byte (or boolean u-byte byte-array) (funcall func stream)))
-          ;;             (typecase byte
-          ;;               (integer (setf (aref result iter) byte))
-          ;;               (simple-array (setf result byte))))
-          ;;           (incf iter)
-          ;;           (change-state micro-fsm (get-tried state-n-lambda)))
-          ;;         parser)
           (change-state micro-fsm "done")
           (setf final-condition "success"))
       (validation-failed-error (e)
@@ -349,53 +328,3 @@ loop over a form"
   (if (equal (final-condition micro-fsm) "success")
       t
       nil))
-      
-;; (defclass macro-finite-state-machine ()
-;;   ((list-of-micro-fsm
-;;     :accessor list-of-macro-fsm
-;;     :initarg :list-of-macro-fsm
-;;     :type list)
-;;    (current-state
-;;     :accessor current-state
-;;     :initform "inactive")
-;;    (current-micro-fsm
-;;     :accessor current-micro-fsm
-;;     :type micro-finite-state-machine)
-;;    (final-condition
-;;     :accessor final-condition
-;;     :type condition)
-;;    (fsm-results
-;;     :accessor fsm-results
-;;     :type list))
-;;   (:documentation "This class is used to execute many micro-fsm's at once to parse a complete
-;; stream"))
-
-;; (defun generate-meta-state (micro-fsm)
-;;   (list :macro-try (format nil "trying micro-fsm: ~S" micro-fsm)
-;;         :macro-tried (format nil "tried micro-fsm: ~S" micro-fsm)))
-
-;; (defun generate-meta-states (list-of-micro-fsm)
-;;   (mapcar (lambda (mi-fsm)
-;;             (append (generate-meta-state list-of-micro-fsm)
-;;                     (list :micro-fsm mi-fsm)))
-;;           list-of-micro-fsm))
-
-
-
-
-
-
-
-
-;; #|
-;; a state machine for reading the string "start" would be like so
-;; state = idle reading-s reading-t reading-a reading-r reading-t done errored
-;; condition = any error encountered this will have to be caught and put into the fsm
-;; to transition would be
-;; reading-s then check if it is equal to s, if so then change state to reading t, accumulate
-;; and continue. can check if valid with lambdas ie
-;; (lambda (s)
-;; (equal s "s")) 
-;; or #\s or char-code of #\s etc each can be generated automatically
-;; |#
-

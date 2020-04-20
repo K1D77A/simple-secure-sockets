@@ -1,5 +1,7 @@
 (in-package :simple-secure-sockets)
-
+;;;;this file contains the code for a parser that works on formal grammars converted to lisp forms
+;;;;there is the start of a library here, but I did run into a few issues with things like
+;;;;inserting variables etc, but it does work and is extremely fast compared to the other two parsers
 #|
 connected-client -> e*16 ; 16 characters and connected to the server
 name -> e*16 ; 16 characters that are the client name
@@ -226,7 +228,6 @@ validation-failed-error"
     (:identify (download-identify-extra stream val))
     (:data (download-data-extra stream val))))
 
-
 (defun download-from-packet-sexp (stream packet-sexp)
   "If the packet to be downloaded is known, this will parse that packet and return a list containing
 all the byte arrays downloaded. If it fails it will return :EOF"
@@ -307,8 +308,8 @@ validation-failed error if fails"
 
 
 (defmethod download-sequence-grammar ((obj connection))
-  "downloads a packet from the connection and produces an alist with all the downloaded values
-returns :EOF if it fails"
+  "downloads a packet from the connection, converts it to the correct instance of 'packet depending
+on the op, and returns this packet. if at any point there is a failure, this will return :EOF"
   (let ((stream (c-stream obj)))
     (handler-case
         (tlet* ((header byte-array (download-header stream *header*))

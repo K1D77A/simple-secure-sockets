@@ -4,11 +4,10 @@
 ;;;only need to support a single connection as there is only 1 rasp pi
 
 
-
-
-
 (defparameter *ip* "")
 (defparameter *port* 12345)
+(defparameter *client-fails* nil)
+
 
 (defvar *current-clients* (make-hash-table :test #'equal))
 
@@ -21,23 +20,30 @@
 ;;     (shutdown-client client)))
 
 (defun start-client (name ip &optional (connect-port 55555))
+  "takes a name and ip, then attempts to connect the client to an already running server, if it
+fails then will return :NOT-CONNECTED, otherwise returns the client object"
   (if (unique-key-p *current-clients* name)
       (setf (gethash name *current-clients*)
             (make-client name ip connect-port))
       (error "name is not a unique name")))
+
 (defun stop-client (name)
+  "Stops the client by 'name' and disconnects it from the server"
   (let ((client (gethash name *current-clients*)))
     (shutdown client t)
     (remhash client *current-clients*)))
+
 (defun stop-all-clients ()
+  "Stops all connected clients"
   (maphash (lambda (key val)
              (declare (ignore key))
              (shutdown val))
            *current-clients*)
   (setf *current-clients* (make-hash-table :test #'equal)))
 
-
 (defmethod try-connect ((obj client) &optional (retry-time 1)(retry-attempts 3))
+  "Attempts to connect to a server. Attempts retry-attempts time and sleeps retry-time between 
+each attempt"
   (let ((failed-to-connect 0))
     (handler-bind ((USOCKET:CONNECTION-REFUSED-ERROR
                      (lambda (c)
@@ -48,7 +54,10 @@
                            (progn (incf failed-to-connect)
                                   (invoke-restart 'sleep-for-x retry-time))))))
       (connect obj))))
+
 (defun make-client (name ip port &optional (retry-time 1)(retry-attempts 3))
+  "creates a client object and attempts to connect it to a listening server. if the client 
+fails to connect it will attempt retry-attempts more times and sleep retry-time between each attempt"
   (unless (stringp name)
     (error "Name should be a string: ~s" name))
   (let ((client (make-instance 'client :ip ip :port port :connection-name name))
@@ -68,11 +77,11 @@
                (f-format :debug :client-start "returning client")
                client))))
 
-
 (defmethod start-packet-download ((obj client))
   (setf (packet-download-thread obj)
         (make-thread (lambda () (packet-download-function obj))
                      :name (format nil "[~A]:packet-download" (connection-name obj)))))
+
 (defmethod start-packet-process ((obj client))
   (setf (packet-processor-function obj)
         (make-thread (lambda () (handle-packets-on-queue obj))
@@ -85,9 +94,6 @@
       (handle-packet obj
                      (lparallel.cons-queue:pop-cons-queue queue)))))
 
-
-
-(defparameter *client-fails* nil)
 (defmethod packet-download-function ((obj client))
   "Keeps calling the function download-sequence until the thread is manually killed. If the thread receives an :EOF from download-sequence it will simply return :DONE"
   (let ((stream (c-stream obj)))
@@ -103,11 +109,11 @@
       :else
         :do (sleep 0.001))))
 
-
 (defmethod push-to-queue (packet queue)
   "pushes all the packets received to the queue"
   ;;(forced-format t "pushing type: ~A to queue~%" (type-of packet))
   (lparallel.queue:push-queue packet queue))
+
 (defmethod push-correct-queue ((obj client)(packet data-packet))
   "Pushes the packet to the correct queue based on the type of packet. data-packets go into (gethash (sender packet) (data-packet-queues obj)), which is a specific queue identified by client names. other packets which are server related packets simply go into the queue in (packet-queue obj)"
   (let* ((c-sender (sender* packet))
@@ -124,6 +130,7 @@
 
 (defun sleep-for-x (x)
   (invoke-restart 'sleep-for-x x))
+
 (defmethod s-connect ((obj client))
   (with-accessors ((ip ip)
                    (port port))
@@ -140,6 +147,8 @@
 (defmethod connect :after ((obj client))  
   (f-format :info :client-connect  "Connection successful"))
 (defmethod connect ((obj client))
+  "Is used to connect the client to the server, returns either :CONNECTED or :NOT-CONNECTED depending
+on whether it is successful or not"
   (with-accessors ((ip ip)
                    (port port)
                    (socket c-socket)
@@ -164,9 +173,11 @@
 (defmethod shutdown :before ((obj client) &optional send-killp)
   (declare (ignore send-killp))
   (f-format :info :client-stop  "Attempting to shutdown client connection to ~s" (ip obj)))
+
 (defmethod shutdown :after ((obj client) &optional send-killp)
   (declare (ignore send-killp))
   (f-format :info :client-stop  "Shutdown complete"))
+
 (defun shutdown-client (client &optional (send-killp nil))
   "shuts down the connection on server"
   (stop-thread (packet-download-thread client))

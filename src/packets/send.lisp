@@ -1,3 +1,6 @@
+;;;;THis file contains the methods to send an instance of 'packet and its subclasses over a network
+;;;;connection to the server/client. 
+
 (in-package :simple-secure-sockets)
 (declaim (optimize (speed 3) (safety 1)))
 
@@ -37,14 +40,13 @@
   (tlet* ((packet packet (build-packet recipient %op-data))
           (d-vecced byte-array (vectorize-data data))
           (len integer (length d-vecced)))
-    (unless (<= len  %max-data-size)
-      (error "Data is longer than ~A which is the current hard limit on data size. Length: ~A" %max-data-size len))
-    (change-class packet 'data-packet)
-    (setf (d-len packet) (the single-byte
-                              (make-array 1 :element-type 'u-byte :initial-element len)))
-    (setf (data packet) d-vecced)
-    ;;   (setf (sender packet) sender-vecced)
-    packet))
+         (unless (<= len  %max-data-size)
+           (error "Data is longer than ~A which is the current hard limit on data size. Length: ~A" %max-data-size len))
+         (change-class packet 'data-packet)
+         (setf (d-len packet) (the single-byte
+                                   (make-array 1 :element-type 'u-byte :initial-element len)))
+         (setf (data packet) d-vecced)
+         packet))
 
 (defun build-clients-packet (client-name connected?)
   (declare (integer connected?))
@@ -60,21 +62,23 @@
       (error "connected? is not 1 or 0. ~s" connected?)))
 
 (defun write-byte-array (seq stream)
+  "Takes in a byte-array and writes it to the stream. Each byte written is forced out after"
   (declare (optimize (speed 3)(safety 1)))
   (declare (byte-array seq))
   (tlet ((len fixnum (length seq)))
-    (declare (fixnum len))
-    (dotimes (i len t)
-      (write-byte (the u-byte (aref seq i)) stream)
-      (finish-output stream))))
+        (declare (fixnum len))
+        (dotimes (i len t)
+          (write-byte (the u-byte (aref seq i)) stream)
+          (finish-output stream))))
 
 (defun add-sender (connection packet)
+  "Takes the sender from connection, turns it into a byte-array and puts into packet"
   (declare (optimize (speed 3)(safety 1)))
   (when (equal (sender packet) :SENDER-NOT-SET)
     ;;want to make sure that it has not be previously set, ie when it is being forwarded
     (tlet ((sender-vecced byte-array (vectorize-data
                                       (connection-name connection) %connection-name-len)))
-      (setf (sender packet) sender-vecced)))
+          (setf (sender packet) sender-vecced)))
   packet)
 
 (defun write-all-to-stream (stream &rest args)
@@ -163,6 +167,8 @@
     packet))
 
 (defmethod send-data-packet ((obj client) recipient data)
+  "Quick wrapper around send to send data packets, requires a recipient that the client is aware of
+and the data that is to be sent"
   (let ((clients (available-clients obj)))
     (when (member recipient clients :test #'string=)
       (let ((packet (build-data-packet recipient data)))

@@ -3,6 +3,7 @@
 (in-package :simple-secure-sockets)
 (defun test (packet)
   (f-format :debug :testing "TEST~%Packet= ~A~%" packet))
+
 (defun test-sending-to-client (port)
   (let ((server nil)
         (client nil))

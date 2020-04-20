@@ -188,10 +188,6 @@ has a recipient the same as their name"
                       "sender either failed to download or is not the same as connection name"
                       packet)))
 
-
-
-
-
 (defmethod handle-fsm-op :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "--Handling OP"))
 (defmethod handle-fsm-op :after ((obj connection)(packet packet))
@@ -202,7 +198,6 @@ has a recipient the same as their name"
   :ACKNOWLEDGE)
 (defmethod handle-fsm-op :after ((obj connection)(packet data-packet))
   (f-format :debug :packet-read  "---Data: ~s" (data* packet)))
-
 
 (defmethod handle-fsm-op ((obj connection)(packet data-packet))
   "Thisn here handles the op code 'd' by downloading the correct amount of data and placing it in the 
@@ -221,8 +216,6 @@ generates a new mfsm of that length to download the rest of the data"
                                       stream
                                       (format nil "attempted to download ~d bytes but failed" len)
                                       packet))))
-
-
 
 (defmethod handle-fsm-op ((obj connection)(packet clients-packet))
   "Has to download %connection-name-len in bytes then 1 more which is a boolean saying whether the 
@@ -247,7 +240,6 @@ name downloaded is connected or not"
                             (c-stream obj)
                             "failure to handle identify packet, couldn't download all the bytes"
                             packet))))
-
 
 (defmethod read-fsm-footer :before ((obj connection)(packet packet))
   (f-format :debug :packet-read  "-reading footer"))

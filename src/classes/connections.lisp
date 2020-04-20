@@ -24,12 +24,16 @@
     :initform (bt:make-lock))
    (connectedp
     :accessor connectedp
-    :initform nil)))
+    :initform nil))
+  (:documentation "This class contains the backbone required to create a valid connection"))
 
 (defclass con-to-server (connection)
   ((queue
     :accessor queue
-    :initform :queue-not-set)))
+    :initform :queue-not-set))
+  (:documentation "This class is to be used by a server to associate the connections 
+it receives from a client with a queue, this queue is where all the packets the client sends are
+are put before processing"))
 
 (defclass client (connection)
   ((available-clients
@@ -101,12 +105,7 @@
    (current-listening-socket
     :accessor current-listening-socket
     :initform :current-listening-socket-not-set))
-  
-  ;;might at some point need a mutex here, however nothing modified this simultaneously, the
-  ;;thread that modifies is killed before another thread attempts to alter it
   (:documentation "Class that manages the server"))
-
-
 
 
 (defmethod print-object ((object server) stream)

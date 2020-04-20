@@ -11,6 +11,9 @@
 
 
 (defun download-and-parse (connection)
+  "A wrapper function that is used to parse data from a stream. If encryption is non nil then
+this will download an encrypted packet, decrypt it and then set use the stream of the decrypted 
+packet as the stream used within the parser"
   (bt:with-lock-held ((stream-lock connection))
     (if (and *encryption* *cipher*)
         (let ((old (c-stream connection))
@@ -25,6 +28,7 @@
         (funcall *parser* connection))))
 
 (defun start-server (name ip &optional (port 55555))
+  "Boots up a server of name and on port"
   (if (unique-key-p *current-servers* name)
       (setf (gethash name *current-servers*)
             (make-server name ip port))
@@ -42,6 +46,7 @@
     (every #'lparallel.queue:queue-empty-p queues)))
 
 (defmethod all-connection-streams-empty-p ((server server))
+  "checks if all the connections to the server no longer are empty"
   (let ((connections (current-connections-array server)))
     (every (lambda (con)
              (let ((stream (c-stream con)))
@@ -50,7 +55,9 @@
                    nil)))
            connections)))
 
-(defun make-server (name listen-ip &optional (listen-port 55555) (thread-count 5) (queues 5))
+(defun make-server (name listen-ip &optional (listen-port 55555) (thread-count 1) (queues 1))
+  "Starts up a server named by name on the IP listen-ip on listen-port with thread-count threads 
+processing the connections and queues for storing the packet"
   (unless (stringp name)
     (error "Name should be a string: ~s" name))
   (let ((server (make-instance 'server :ip listen-ip :port listen-port
@@ -157,6 +164,11 @@ is returned"
                       (remove-con obj con))))
 
 (defmethod accept-connections ((obj server))
+  "Permanently loops and waits for new connections. When a client connects the a new instance
+of 'con-to-server is created and then the process for initializing a client starts. The new client is
+expected to send an identify packet which is used by the server to identify the connection, and for
+other connected clients to send packets to them. If there is a successful connection then all
+the other connected clients are informed that the new client has been connected"
   (loop :do
     (let ((current-connection (wait-for-connection obj (make-instance 'con-to-server))))
       (when (not (equal current-connection :SERIOUS-CONDITION))
@@ -170,7 +182,7 @@ is returned"
               (let ((id (id* identify-packet)))
                 (setf (connection-name current-connection) id)
                 (let* ((q (packet-queues obj));;just assign any queue randomly
-                       (ran-q  (elt q (random (list-length q)))))
+                       (ran-q (elt q (random (list-length q)))))
                   (setf (queue current-connection) ran-q))
                 ;; (forced-format t "~a" (type-of (queue current-connection)))
                 (add-connection obj current-connection)

@@ -15,7 +15,7 @@
         :client-connect :client-disconnect
         :server-receive :server-disconnect
         :packet-process))
-
+;;this log function doesn't actually work, I should take the time to change to a log library
 ;;use :all to always print regardless of level
 (defun valid-prefix-p (prefix)
   (member prefix *valid-format-prefixes* :test #'equal))
@@ -48,8 +48,6 @@
   (format destination control-string format-arguments)
   (force-output destination))
 
-
-
 (defmacro tlet (bindings &body body)
   "exactly the same as let except the second position is the type information"
   `(let ,(mapcar (lambda (lst)
@@ -65,9 +63,6 @@
                           (list 'the (second lst) (third lst))))
            bindings)
      ,@body))
-
-
-
 
 (defun list-to-string (lst)
   "converts a list to a string"
@@ -109,7 +104,6 @@
     (string data))
   (:method (data)
     (format nil "~A" data)))
-
 
 (defun vectorize-data (data &optional (set-length nil))
   "takes in a string and converts it to an array of type '(unsigned-byte 8)"

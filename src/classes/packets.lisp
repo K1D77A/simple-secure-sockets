@@ -23,7 +23,11 @@
    (op
     :accessor op
     :initarg :op
-    :initform :op-not-set)))
+    :initform :op-not-set))
+  (:documentation "The superclass of all the other packets. Contains the skeleton of a packet"))
+
+;;;the series of * postfixed named accessors return a string version of what the slot contains
+;;;making it easy for comparison or reading
 
 (defmethod recipient* (object)
   (c2s-c (slot-value object 'recipient)))
