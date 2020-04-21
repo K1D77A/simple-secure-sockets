@@ -21,7 +21,9 @@ SERVER handlers
       (forward connection packet))))
 
 (defun forward (connection packet)
-  (send connection packet))
+  (if (and *encryption* *cipher*)
+      (send-packet connection *cipher* packet)
+      (send connection packet)))
 
 (defmethod handle-packet ((obj server) packet)
   (forced-format t "Not implemented~%")

@@ -4,9 +4,10 @@
 (declaim (optimize (speed 3)(safety 1)))
 
 (defparameter *current-servers* (make-hash-table :test 'equal))
-(defparameter *encryption* t)
+(defparameter *encryption* nil);;encryption parsing is currently working, however
+;;when attempts are made to send large quantities of packets it quits working
 (defparameter *parser* #'download-sequence-fsm)
-(defparameter *cipher* *blowfish-cipher*)
+(defparameter *cipher* *aes256-cipher*)
 ;;(defparameter *buff-not-stream* nil)
 
 

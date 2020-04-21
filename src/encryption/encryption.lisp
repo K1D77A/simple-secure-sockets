@@ -39,13 +39,15 @@
   (ironclad:make-cipher :twofish
                         :mode :cfb8
                         :initialization-vector (rand-data 16)
-                        :key (ironclad:ascii-string-to-byte-array (hash-password *pass* :ripemd-128))))
+                        :key (ironclad:ascii-string-to-byte-array
+                              (hash-password *pass* :ripemd-128))))
 
 (defparameter *threefish256-cipher*
   (ironclad:make-cipher :threefish256
                         :mode :cfb8
                         :initialization-vector (rand-data 32)
-                        :key (ironclad:ascii-string-to-byte-array (hash-password *pass* :ripemd-128))))
+                        :key (ironclad:ascii-string-to-byte-array
+                              (hash-password *pass* :ripemd-128))))
 
 (defparameter *threefish512-cipher*
   (ironclad:make-cipher :threefish512
@@ -194,12 +196,13 @@ to remove the IV block"
   "Takes in a connection, cipher and packet, encrypts the packet using 'encrypt-packet'
 and appends its length to the start of the encrypted packet before sending it down
  (c-stream connection)"
-  (tlet* ((encrypted byte-array (encrypt-packet connection cipher packet))
-          (len fixnum (length encrypted))
-          (arr-to-send byte-array (conc-arrs `(#(,len) ,encrypted)))
-          (stream stream (c-stream connection)))
-    (write-sequence arr-to-send stream)
-    (force-output stream)))
+  (bt:with-lock-held ((stream-lock connection))
+    (tlet* ((encrypted byte-array (encrypt-packet connection cipher packet))
+            (len fixnum (length encrypted))
+            (arr-to-send byte-array (conc-arrs `(#(,len) ,encrypted)))
+            (stream stream (c-stream connection)))
+      (write-sequence arr-to-send stream)
+      (force-output stream))))
 
 (defun download-encrypted-packet (connection cipher)
   "downloads an encrypted packet from the (c-stream connection), decrypts it and returns it as an
