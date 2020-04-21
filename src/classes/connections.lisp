@@ -39,17 +39,6 @@ are put before processing"))
   ((available-clients
     :accessor available-clients
     :initform (list :available-clients))
-   (packet-processor-function
-    :accessor packet-processor-function
-    :initform :packet-processor-function-not-set)
-   (packet-processor-functions
-    :accessor ppf
-    :initform (make-hash-table))
-   (packet-queue
-    :accessor packet-queue
-    :type lparallel.cons-queue:cons-queue
-    :initform (lparallel.queue:make-queue)
-    :documentation "Queue for all the packets from the server")
    (data-packet-queues
     :accessor data-packet-queues
     :initform (make-hash-table :test #'equal))
@@ -80,21 +69,10 @@ are put before processing"))
     :initform (make-array 0  :adjustable t :element-type 'connection :fill-pointer 0))
    (receive-connections-function
     :accessor receive-connections-function
-    :initform :connections-function-not-set)
-   (packet-queues
-    :accessor packet-queues
-    :initform :queues-not-set
-    :initarg :queues)
-   (process-packets-function
-    :accessor process-packets-function
-    :initform :process-packets-function-not-set)
+    :initform :connections-function-not-set)   
    (download-from-connections-thread
     :accessor download-from-connections-thread
     :initform :download-from-connections-thread-not-set)
-   (queues-count
-    :accessor queues-count
-    :initform 1
-    :initarg :queues-count)
    (modification-lock
     :accessor modification-lock
     :initform (bt:make-lock))
@@ -110,17 +88,13 @@ are put before processing"))
 
 (defmethod print-object ((object server) stream)
   (with-accessors ((name name)
-                   (r-c-f receive-connections-function)
-                   (p-q packet-queues)
-                   (p-p-f process-packets-function)
+                   (r-c-f receive-connections-function)                   
                    (current-cons current-connections))
       object
     (print-unreadable-object (object stream :type t :identity t)
-      (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Packet queues: ~A~%Process packets function: ~A~%Current-connections: ~A~%"
+      (format stream "~%Name: ~A~%Receive-connections-function: ~A~%Current-connections: ~A~%"
               name
-              r-c-f
-              (format nil "~D queues" (length p-q))
-              (format nil "(~A .. ~A more .. )" (first p-p-f) (1- (length p-p-f)))
+              r-c-f              
               (maphash (lambda (key val)
                          (declare (ignore key))
                          (format stream "~A~%" (connection-name val)))
@@ -128,7 +102,7 @@ are put before processing"))
 
 (defmethod print-object ((object client) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "Name: ~A~%Address: ~A:~A~%Available clients: ~A~%Socket: ~A~%Stream: ~A~%Data-packet-queues: ~S~%Packet download thread: ~A~%Packet processor thread: ~A~%"
+    (format stream "Name: ~A~%Address: ~A:~A~%Available clients: ~A~%Socket: ~A~%Stream: ~A~%Data-packet-queues: ~S~%Packet download thread: ~A~%"
             (connection-name object)
             (ip object)
             (port object)
@@ -137,8 +111,7 @@ are put before processing"))
             (c-stream object)
             (data-packet-queues object)
             ;;  (ppf object)
-            (packet-download-thread object)
-            (packet-processor-function object))))
+            (packet-download-thread object))))
 
 (defmethod print-object ((object connection) stream)
   (print-unreadable-object (object stream :type t :identity t)    

@@ -190,7 +190,6 @@ and the data that is to be sent"
                         (declare (ignore val2))
                         (unless (string= (connection-name val)
                                          key2)
-                          (sb-ext:atomic-incf (car *moved-packets*))
                           (send val (build-clients-packet key2 1))))
                       (current-connections obj)))
            (current-connections obj)))
@@ -202,8 +201,6 @@ and the data that is to be sent"
              (declare (ignore key))
              (let ((current-con val))
                (unless (equalp (connection-name current-con) (connection-name connection))
-                 ;; (ignore-errors
-                 (sb-ext:atomic-incf (car *moved-packets*))
                  (send current-con
                        (build-clients-packet (connection-name connection)
                                              (if connectedp 1 0))))))

@@ -27,12 +27,12 @@
         (shutdown client)
         (values client server)))))
 
-(defun connect-n-clients (n port threads queues)
+(defun connect-n-clients (n port threads)
   (let ((server)
         (clients))
     (handler-case
         (progn 
-          (setf server (make-server "server" "127.0.0.1" port threads queues))
+          (setf server (make-server "server" "127.0.0.1" port threads))
           (format t "~&Server created~%")
           (setf clients (loop :for x :from 1 :to n
                               :collect (make-client (format nil "client~d" x)
@@ -49,31 +49,17 @@
 
 
 ;;need to catch errors and shut all down etc
-(defun test-large-amount-of-connections (n port threads queues)
+(defun test-large-amount-of-connections (n port threads)
   ;; (declare (optimize (speed 3)(safety 1)))
-  (setf (first *moved-packets*) 0)
   (multiple-value-bind (server clients)
-      (connect-n-clients n port threads queues)
+      (connect-n-clients n port threads)
     (unless (equal server :FAILED)
-      ;; (mapcar (lambda (client)
-      ;;           (mapcar (lambda (available)
-      ;;                     (unless (equal available :AVAILABLE-CLIENTS)
-      ;;                       ;;   (forced-format t "Sending to: ~A~%" available)
-      ;;                       ;;   (forced-format t "from: ~A~%" (connection-name client))
-      ;;                       ;;                                    (connection-name client))
-      ;;                       (send client (build-data-packet available "oof"))))
-      ;;                   (available-clients client)))
-      ;;         clients)
-      ;; (sleep 2)
-      ;; (print (done-processing-p server))
-      ;; (print (all-connection-streams-empty-p server))
       (when (shutdown-connected-server-and-clients server clients)
         (values clients server)))))
 
 (defun shutdown-connected-server-and-clients (server clients &optional (time))
-  (declare (ignore time))
-  (loop :while (not (or (all-connection-streams-empty-p server)
-                        (done-processing-p server)))
+  (declare (ignore time clients))
+  (loop :while (not (all-connection-streams-empty-p server))
         :do (sleep 0.01)
         :finally (sleep 1)
                  (handler-case (progn ;;(mapcar #'shutdown clients)
@@ -83,25 +69,32 @@
                      (shutdown server)
                      (return t)))))
 
-(defun test-large-amount-of-packets (n-packets n-clients port threads queues)
+(defun packet-count (client)
+  (let ((count 0))
+    (maphash (lambda  (key val)
+               (declare (ignore key))
+               (incf count (lparallel.queue:queue-count val)))
+             (data-packet-queues client))
+    count))
+                                
+
+(defun test-large-amount-of-packets (n-packets n-clients port threads)
   ;; (declare (optimize (speed 3)(safety 1)))
-  (setf (first *moved-packets*) 0)
   (multiple-value-bind (server clients)
-      (connect-n-clients n-clients port threads queues)
+      (connect-n-clients n-clients port threads)
     (let ((now (get-internal-run-time)))
       (if (equal server :FAILED)
           :failed
           (progn (gen-and-send-packets clients n-packets)
-                 (when (loop :while (not (or (all-connection-streams-empty-p server)
-                                             (done-processing-p server)))
-                             :do (sleep 0.001)
+                 (when (loop :while (not (all-connection-streams-empty-p server))
+                             :do (sleep 0.01)
                              :finally (setf now (- (get-internal-run-time) now))
-                                      (sleep 10)
+                                      (sleep 5)
                                       (handler-case
                                           (progn ;;(mapcar #'shutdown clients)
                                             (sleep 1)
                                             (shutdown server t)
-                                            ;;(sleep )
+                                            (sleep 1)
                                             (forced-format
                                              t "time: ~d"
                                              (float (/ now internal-time-units-per-second)))
@@ -109,6 +102,7 @@
                                         (error ()
                                           (shutdown server)
                                           (return t)))))
+                 (print (reduce #'+ (mapcar #'packet-count clients)))
                  (values clients server))))))
 
 (defmacro clean-shutdown-server-and-clients (server clients &body body)

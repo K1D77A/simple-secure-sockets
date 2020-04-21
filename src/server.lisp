@@ -10,6 +10,7 @@
 ;;(defparameter *buff-not-stream* nil)
 
 
+
 (defun download-and-parse (connection)
   "A wrapper function that is used to parse data from a stream. If encryption is non nil then
 this will download an encrypted packet, decrypt it and then set use the stream of the decrypted 
@@ -40,10 +41,6 @@ packet as the stream used within the parser"
     (shutdown server)
     (remhash name *current-servers*)))
 
-(defmethod done-processing-p ((obj server))
-  "checks if all the queues are empty."
-  (let ((queues (packet-queues obj)))
-    (every #'lparallel.queue:queue-empty-p queues)))
 
 (defmethod all-connection-streams-empty-p ((server server))
   "checks if all the connections to the server no longer are empty"
@@ -55,21 +52,19 @@ packet as the stream used within the parser"
                    nil)))
            connections)))
 
-(defun make-server (name listen-ip &optional (listen-port 55555) (thread-count 1) (queues 1))
+(defun make-server (name listen-ip &optional (listen-port 55555) (thread-count 1))
   "Starts up a server named by name on the IP listen-ip on listen-port with thread-count threads 
 processing the connections and queues for storing the packet"
   (unless (stringp name)
     (error "Name should be a string: ~s" name))
   (let ((server (make-instance 'server :ip listen-ip :port listen-port
-                                       :name name :queues-count queues
+                                       :name name 
                                        :handle-cons-thread-count thread-count)))
     (handler-case (if (equal (set-server-socket server) :ADDRESS-IN-USE)
                       (progn (shutdown server)
                              :ADDRESS-IN-USE)
                       (progn (setup-thread-kernel server)
-                             (create-queues server)
                              (start-accept-connections server)
-                             (start-queue-threads server)
                              (start-download-from-connections server)
                              server))
       (serious-condition (c) (progn (format t "Server error: ~s~%" c)
@@ -91,11 +86,6 @@ processing the connections and queues for storing the packet"
                          (accept-connections obj))
                        :name r-c-f-n))))
 
-(defmethod create-queues ((obj server) &optional (queue-creation-func #'lparallel.queue:make-queue))
-  "returns a list of length queue-count of lparallel"
-  (setf (packet-queues obj)
-        (loop :for x :from 1 :to (queues-count obj)
-              :collect (funcall queue-creation-func))))
 
 (defmethod setup-thread-kernel ((obj server))
   "Stars up lparallels kernel with the right amount of threads"
@@ -106,27 +96,8 @@ processing the connections and queues for storing the packet"
           (lparallel:make-kernel thread-count
                                  :name (format nil "[~A]:process-connections-kernel" name)))))
 
-(defmethod start-queue-threads ((obj server))
-  "starts up a thread for each queue and returns a list of all those threads"
-  (setf (process-packets-function obj)
-        (let ((x 0)
-              (lst nil))
-          (dolist (i (packet-queues obj) lst)
-            (push (make-thread (lambda ()
-                                 (handle-packets-in-queue obj i))
-                               :name (format nil "[~A]:packet-process~d" (name obj) x))
-                  lst)
-            (incf x)))))
 
-(defparameter *moved-packets* (cons 0 nil))
-
-(defmethod push-to-packet-queue ((obj server)(connection con-to-server) (packet packet))
-  (declare (ignore obj))
-  (let ((q (queue connection)))
-    (sb-ext:atomic-incf (car *moved-packets*))
-    (lparallel.queue:push-queue packet q)))
-
-(defmethod download-push-to-queue ((obj server)(connection con-to-server))
+(defmethod download-and-process ((obj server)(connection con-to-server))
   "Downloads all the packets available on a connection until (listen (c-stream connection)) 
 returns nil and pushes them onto the queue associated with connection.
 If the download-sequence returns :EOF then :EOF is returned, if (listen ) returns nil then :DONE
@@ -137,18 +108,10 @@ is returned"
             ((let ((packet (download-and-parse connection)))
                (if (equal packet :EOF)
                    (return :EOF)
-                   (push-to-packet-queue obj connection packet)))))
+                   (handle-packet obj packet)))));;not sure if this will cause
+      ;;sync problems 
       (stream-error () :EOF)
       (TYPE-ERROR () :EOF))))
-
-(defun handle-packets-in-queue (server queue)
-  "***for use by a thread*** takes in queue, loops infinitely and handles the packets pulled from the queue"
-  (let ((q queue))
-    (loop :if (lparallel.queue:queue-empty-p q)
-            :do (sleep 0.001)
-          :else 
-            :do (let ((packet (lparallel.queue:pop-queue q)))
-                  (handle-packet server packet)))))
 
 (defmethod process-connections ((obj server))
   "infinitely loops over current-connections-array and calls using lparallels pmapcar function"
@@ -157,8 +120,8 @@ is returned"
       :do (sleep 0.001)
     :else
       :do (loop :for con :across (current-connections-array obj)
-                :for x := (download-push-to-queue obj con)
-                  :then (download-push-to-queue obj con)
+                :for x := (download-and-process obj con)
+                  :then (download-and-process obj con)
                 :when (equal x :EOF)
                   :do (shutdown con nil)
                       (remove-con obj con))))
@@ -180,21 +143,17 @@ the other connected clients are informed that the new client has been connected"
           (f-format :debug :server-receive  "-----A PACKET HAS BEEN RECEIVED-------~%")
           (if (equal (type-of identify-packet) 'identify-packet)
               (let ((id (id* identify-packet)))
-                (setf (connection-name current-connection) id)
-                (let* ((q (packet-queues obj));;just assign any queue randomly
-                       (ran-q (elt q (random (list-length q)))))
-                  (setf (queue current-connection) ran-q))
+                (setf (connection-name current-connection) id)                
                 ;; (forced-format t "~a" (type-of (queue current-connection)))
                 (add-connection obj current-connection)
                 (send current-connection (build-ack-packet))
-                (sb-ext:atomic-incf (car *moved-packets*))
                 (setf (connectedp current-connection) t)
                 (update-all-clients-with-all-connected obj))
               ;;ideally it would be better if we could jam this into the background
               ;;but 
               (let ((type (type-of identify-packet))) 
                 (f-format :error :server-receive
-                          "packet was not of type identify-packet: ~A" packet)
+                          "packet was not of type identify-packet: ~A" type)
                 (f-format :error :server-receive  "breaking connection")
                 (shutdown current-connection))))))))
 
@@ -257,19 +216,15 @@ array"
                                  nil))
                (remove-con obj val))
              table))
-  (with-accessors  ((receive-connections receive-connections-function)
-                    (process-packets process-packets-function)
+  (with-accessors  ((receive-connections receive-connections-function)                    
                     (socket current-listening-socket)
                     (download-thread download-from-connections-thread))
       obj
     (unless (keywordp download-thread)
       (stop-thread download-thread))
-    ;;   (setf (current-connections-array obj) nil)
     (unless (keywordp receive-connections)
       (stop-thread receive-connections))
     (lparallel:end-kernel)
-    (unless (keywordp process-packets)
-      (mapcar #'stop-thread process-packets))
     (unless (keywordp socket)
       (safe-socket-close socket))
     (remhash (name obj) *current-servers*)))

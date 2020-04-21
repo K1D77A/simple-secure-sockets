@@ -72,7 +72,6 @@ fails to connect it will attempt retry-attempts more times and sleep retry-time 
         (progn (f-format :info :client-start  "client failed")
                :NOT-CONNECTED)
         (progn (start-packet-download client)
-               (start-packet-process client)
                (setf (connectedp client) t)
                (f-format :debug :client-start "returning client")
                client))))
@@ -82,20 +81,8 @@ fails to connect it will attempt retry-attempts more times and sleep retry-time 
         (make-thread (lambda () (packet-download-function obj))
                      :name (format nil "[~A]:packet-download" (connection-name obj)))))
 
-(defmethod start-packet-process ((obj client))
-  (setf (packet-processor-function obj)
-        (make-thread (lambda () (handle-packets-on-queue obj))
-                     :name (format nil "[~A]:packet-process" (connection-name obj)))))
-
-(defmethod handle-packets-on-queue ((obj client))
-  ;; (declare (optimize (speed 3)(safety 0)))
-  (let ((queue (packet-queue obj)))
-    (loop :do
-      (handle-packet obj
-                     (lparallel.cons-queue:pop-cons-queue queue)))))
-
 (defmethod packet-download-function ((obj client))
-  "Keeps calling the function download-sequence until the thread is manually killed. If the thread receives an :EOF from download-sequence it will simply return :DONE"
+  "Keeps calling the function download-sequence until the thread is manually killed. If the thread receives an :EOF from download-sequence it will simply return :EOF"
   (let ((stream (c-stream obj)))
     (loop
       :if (handler-case (listen stream)
@@ -126,7 +113,7 @@ fails to connect it will attempt retry-attempts more times and sleep retry-time 
 
 (defmethod push-correct-queue ((obj client) packet)
   ;;(forced-format t "~&packet: ~A~%" packet)
-  (push-to-queue packet  (packet-queue obj)))
+  (handle-packet obj packet))
 
 (defun sleep-for-x (x)
   (invoke-restart 'sleep-for-x x))
@@ -186,9 +173,7 @@ on whether it is successful or not"
     (send client (build-kill-packet)))
   ;;need to send a kill packet
   (safe-socket-close (c-socket client));;this throws and end of file for some reason.
-  (remhash (connection-name client) *current-clients*)
-  (make-thread (lambda ();;this is necessary because you cannot kill the calling thread
-                 (stop-thread (packet-processor-function client)))))
+  (remhash (connection-name client) *current-clients*))
 
 (defmethod shutdown ((obj client) &optional  (send-killp t))
   "shuts down the connection on server"
